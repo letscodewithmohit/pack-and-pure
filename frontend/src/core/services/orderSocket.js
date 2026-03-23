@@ -14,16 +14,35 @@ function socketBaseUrl() {
  */
 export function getOrderSocket(getToken) {
   const token = typeof getToken === "function" ? getToken() : getToken;
-  if (!token) return null;
+  if (!token) {
+    console.warn('[orderSocket] No token available, cannot connect');
+    return null;
+  }
 
   if (!socket || !socket.connected) {
+    console.log('[orderSocket] Creating new Socket.IO connection to:', socketBaseUrl());
     socket = io(socketBaseUrl(), {
       auth: { token },
       transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionDelay: 1000,
     });
+
+    socket.on('connect', () => {
+      console.log('[orderSocket] Socket connected, ID:', socket.id);
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('[orderSocket] Socket disconnected, reason:', reason);
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('[orderSocket] Socket connection error:', error);
+    });
+  } else {
+    console.log('[orderSocket] Reusing existing socket connection, ID:', socket.id);
   }
+  
   return socket;
 }
 
@@ -76,14 +95,42 @@ export function onCustomerOtp(getToken, handler) {
 
 export function onDeliveryOtpGenerated(getToken, handler) {
   const s = getOrderSocket(getToken);
-  if (!s || typeof handler !== "function") return () => {};
-  s.on("delivery:otp:generated", handler);
-  return () => s.off("delivery:otp:generated", handler);
+  if (!s || typeof handler !== "function") {
+    console.warn('[orderSocket] onDeliveryOtpGenerated: Socket not available or invalid handler');
+    return () => {};
+  }
+  
+  console.log('[orderSocket] Registering delivery:otp:generated listener');
+  
+  const wrappedHandler = (payload) => {
+    console.log('[orderSocket] delivery:otp:generated event received:', payload);
+    handler(payload);
+  };
+  
+  s.on("delivery:otp:generated", wrappedHandler);
+  return () => {
+    console.log('[orderSocket] Unregistering delivery:otp:generated listener');
+    s.off("delivery:otp:generated", wrappedHandler);
+  };
 }
 
 export function onDeliveryOtpValidated(getToken, handler) {
   const s = getOrderSocket(getToken);
-  if (!s || typeof handler !== "function") return () => {};
-  s.on("delivery:otp:validated", handler);
-  return () => s.off("delivery:otp:validated", handler);
+  if (!s || typeof handler !== "function") {
+    console.warn('[orderSocket] onDeliveryOtpValidated: Socket not available or invalid handler');
+    return () => {};
+  }
+  
+  console.log('[orderSocket] Registering delivery:otp:validated listener');
+  
+  const wrappedHandler = (payload) => {
+    console.log('[orderSocket] delivery:otp:validated event received:', payload);
+    handler(payload);
+  };
+  
+  s.on("delivery:otp:validated", wrappedHandler);
+  return () => {
+    console.log('[orderSocket] Unregistering delivery:otp:validated listener');
+    s.off("delivery:otp:validated", wrappedHandler);
+  };
 }

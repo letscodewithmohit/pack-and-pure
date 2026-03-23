@@ -292,22 +292,24 @@ const OrderDetailPage = () => {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-4 space-y-4">
-        {/* Enhanced Map with Cleaner Design */}
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-3xl overflow-hidden shadow-lg border border-slate-200/50"
-        >
-          <LiveTrackingMap
-            status={order.workflowStatus || order.status}
-            eta={status === "delivered" ? "Arrived" : "8 mins"}
-            riderName={order.deliveryBoy?.name || "Delivery Partner"}
-            riderLocation={liveLocation}
-            destinationLocation={order.address?.location || null}
-            routePolyline={routePolyline}
-            onOpenInMaps={handleOpenInMaps}
-          />
-        </motion.div>
+        {/* Enhanced Map with Cleaner Design - Hide when delivered or cancelled */}
+        {status !== "delivered" && status !== "cancelled" && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-3xl overflow-hidden shadow-lg border border-slate-200/50"
+          >
+            <LiveTrackingMap
+              status={order.workflowStatus || order.status}
+              eta={status === "delivered" ? "Arrived" : "8 mins"}
+              riderName={order.deliveryBoy?.name || "Delivery Partner"}
+              riderLocation={liveLocation}
+              destinationLocation={order.address?.location || null}
+              routePolyline={routePolyline}
+              onOpenInMaps={handleOpenInMaps}
+            />
+          </motion.div>
+        )}
 
         {/* Order Progress Tracker - New Component */}
         <OrderProgressTracker order={order} />

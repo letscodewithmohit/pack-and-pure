@@ -568,25 +568,32 @@ export const generateDeliveryOtp = async (req, res) => {
             const { getIO } = await import('../socket/socketManager.js');
             const io = getIO();
             
-            // Emit to customer's room
-            if (order.customer?._id) {
-                io.to(`customer:${order.customer._id}`).emit('delivery:otp:generated', {
-                    orderId: order.orderId,
-                    otp: result.otp,
-                    expiresAt: result.expiresAt,
-                    deliveryPersonNearby: true
-                });
-            }
-
-            // Also emit to order room in case customer is listening there
-            io.to(`order:${order.orderId}`).emit('delivery:otp:generated', {
+            const otpPayload = {
                 orderId: order.orderId,
                 otp: result.otp,
                 expiresAt: result.expiresAt,
                 deliveryPersonNearby: true
-            });
+            };
+
+            console.log('[generateDeliveryOtp] Emitting delivery:otp:generated event:', otpPayload);
+            console.log('[generateDeliveryOtp] Customer ID:', order.customer?._id);
+            console.log('[generateDeliveryOtp] Order ID:', order.orderId);
+            
+            // Emit to customer's room
+            if (order.customer?._id) {
+                const customerRoom = `customer:${order.customer._id}`;
+                console.log('[generateDeliveryOtp] Emitting to customer room:', customerRoom);
+                io.to(customerRoom).emit('delivery:otp:generated', otpPayload);
+            }
+
+            // Also emit to order room in case customer is listening there
+            const orderRoom = `order:${order.orderId}`;
+            console.log('[generateDeliveryOtp] Emitting to order room:', orderRoom);
+            io.to(orderRoom).emit('delivery:otp:generated', otpPayload);
+            
+            console.log('[generateDeliveryOtp] Socket.IO events emitted successfully');
         } catch (socketError) {
-            console.error('Error emitting Socket.IO event:', socketError);
+            console.error('[generateDeliveryOtp] Error emitting Socket.IO event:', socketError);
             // Don't fail the request if socket emission fails
         }
 

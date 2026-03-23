@@ -60,13 +60,20 @@ const DeliveryOtpDisplay = ({ orderId }) => {
   useEffect(() => {
     if (!orderId) return;
 
+    console.log(`[DeliveryOtpDisplay] Setting up Socket.IO listeners for order ${orderId}`);
+
     const getToken = () => localStorage.getItem("auth_customer");
-    getOrderSocket(getToken);
+    const socket = getOrderSocket(getToken);
+    
+    console.log(`[DeliveryOtpDisplay] Socket connection status:`, socket?.connected);
+    console.log(`[DeliveryOtpDisplay] Socket ID:`, socket?.id);
 
     // Listen for OTP generation event
     // Requirement 4.1: Receive notification to display OTP
     const offGenerated = onDeliveryOtpGenerated(getToken, (payload) => {
+      console.log(`[DeliveryOtpDisplay] Received delivery:otp:generated event:`, payload);
       if (payload?.orderId === orderId) {
+        console.log(`[DeliveryOtpDisplay] OTP matches current order, displaying OTP:`, payload.otp);
         setOtpData({
           otp: payload.otp,
           expiresAt: payload.expiresAt,
@@ -74,19 +81,24 @@ const DeliveryOtpDisplay = ({ orderId }) => {
         });
         setIsDelivered(false);
         setRemainingSeconds(calculateRemainingTime(payload.expiresAt));
+      } else {
+        console.log(`[DeliveryOtpDisplay] OTP for different order. Expected: ${orderId}, Got: ${payload?.orderId}`);
       }
     });
 
     // Listen for OTP validation event
     // Requirement 4.1: Show delivery confirmation
     const offValidated = onDeliveryOtpValidated(getToken, (payload) => {
+      console.log(`[DeliveryOtpDisplay] Received delivery:otp:validated event:`, payload);
       if (payload?.orderId === orderId) {
+        console.log(`[DeliveryOtpDisplay] OTP validated for current order, showing delivery confirmation`);
         setIsDelivered(true);
         setOtpData(null);
       }
     });
 
     return () => {
+      console.log(`[DeliveryOtpDisplay] Cleaning up Socket.IO listeners for order ${orderId}`);
       offGenerated();
       offValidated();
     };
