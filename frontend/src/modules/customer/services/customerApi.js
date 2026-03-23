@@ -1,0 +1,98 @@
+import axiosInstance from "@core/api/axios";
+import { getWithDedupe, invalidateCache } from "@core/api/dedupe";
+
+export const customerApi = {
+  sendLoginOtp: (data) => axiosInstance.post("/customer/send-login-otp", data),
+  sendSignupOtp: (data) =>
+    axiosInstance.post("/customer/send-signup-otp", data),
+  verifyOtp: (data) => axiosInstance.post("/customer/verify-otp", data),
+  getProfile: () => getWithDedupe("/customer/profile", {}, { ttl: 5000 }), // Short cache for profile
+  updateProfile: (data) => axiosInstance.put("/customer/profile", data),
+  getWalletTransactions: (params) =>
+    getWithDedupe("/customer/transactions", params),
+  getCategories: (params) =>
+    getWithDedupe("/categories", params, { ttl: 60 * 1000 }), // 1 min for categories
+  getProducts: (params) => getWithDedupe("/products", params),
+  getProductById: (id) => getWithDedupe(`/products/${id}`),
+
+  // Sellers & Location
+  getNearbySellers: (params) => getWithDedupe("/seller/nearby", params),
+
+  // Cart
+  getCart: () => getWithDedupe("/cart", {}, { ttl: 2000 }), // Very short cache for cart
+  addToCart: (data) => {
+    invalidateCache("/cart"); // Invalidate cart cache
+    return axiosInstance.post("/cart/add", data);
+  },
+  updateCartQuantity: (data) => {
+    invalidateCache("/cart");
+    return axiosInstance.put("/cart/update", data);
+  },
+  removeFromCart: (productId) => {
+    invalidateCache("/cart");
+    return axiosInstance.delete(`/cart/remove/${productId}`);
+  },
+  clearCart: () => {
+    invalidateCache("/cart");
+    return axiosInstance.delete("/cart/clear");
+  },
+
+  // Wishlist
+  getWishlist: (params) => getWithDedupe("/wishlist", params, { ttl: 5000 }),
+  addToWishlist: (data) => {
+    invalidateCache("/wishlist");
+    return axiosInstance.post("/wishlist/add", data);
+  },
+  toggleWishlist: (data) => {
+    invalidateCache("/wishlist");
+    return axiosInstance.post("/wishlist/toggle", data);
+  },
+  removeFromWishlist: (productId) => {
+    invalidateCache("/wishlist");
+    return axiosInstance.delete(`/wishlist/remove/${productId}`);
+  },
+
+  // Orders
+  // Explicit timeout so checkout never waits forever if the server blocks (e.g. Redis/Bull).
+  placeOrder: (data) =>
+    axiosInstance.post("/orders/place", data, { timeout: 120000 }),
+  getMyOrders: () => getWithDedupe("/orders/my-orders"),
+  /** No dedupe: order detail must reflect live workflow; cache caused stale/empty client state on refresh. */
+  getOrderDetails: (orderId) =>
+    axiosInstance.get(
+      `/orders/details/${encodeURIComponent(String(orderId ?? "").trim())}`,
+    ),
+  cancelOrder: (orderId, data) =>
+    axiosInstance.put(`/orders/cancel/${orderId}`, data),
+  requestReturn: (orderId, data) =>
+    axiosInstance.post(`/orders/${orderId}/returns`, data),
+  getReturnDetails: (orderId) => getWithDedupe(`/orders/${orderId}/returns`),
+
+  // Payments
+  createPaymentOrder: (data) =>
+    axiosInstance.post("/payments/create-order", data),
+  verifyPayment: (data) => axiosInstance.post("/payments/verify", data),
+
+  // Support & Reviews
+  getProductReviews: (productId) =>
+    getWithDedupe(`/reviews/product/${productId}`),
+  submitReview: (data) => axiosInstance.post("/reviews/submit", data),
+  createTicket: (data) => axiosInstance.post("/tickets/create", data),
+  getMyTickets: () => getWithDedupe("/tickets/my-tickets"),
+
+  // Experience sections (home / header pages)
+  getExperienceSections: (params) => getWithDedupe("/experience", params),
+
+  // Hero config (separate hero banners + categories per page; fallback to home)
+  getHeroConfig: (params) =>
+    getWithDedupe("/experience/hero", params, { ttl: 60 * 1000 }),
+
+  // Public offers
+  getOffers: () => getWithDedupe("/offers"),
+  // Offer sections (category → products, banner + side image)
+  getOfferSections: () => getWithDedupe("/offer-sections"),
+
+  // Coupons
+  validateCoupon: (data) => axiosInstance.post("/coupons/validate", data),
+  getActiveCoupons: () => getWithDedupe("/coupons", { status: "active" }),
+};

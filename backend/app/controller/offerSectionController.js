@@ -1,0 +1,135 @@
+import OfferSection from "../models/offerSection.js";
+import handleResponse from "../utils/helper.js";
+
+export const getPublicOfferSections = async (req, res) => {
+  try {
+    const sections = await OfferSection.find({ status: "active" })
+      .sort({ order: 1, createdAt: 1 })
+      .populate("categoryIds", "name slug image")
+      .populate("categoryId", "name slug image")
+      .populate("sellerIds", "shopName name logo")
+      .populate("productIds", "name slug price salePrice mainImage stock unit")
+      .lean();
+
+    return handleResponse(res, 200, "Offer sections fetched", sections);
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+export const getAdminOfferSections = async (req, res) => {
+  try {
+    const { status } = req.query;
+    const query = {};
+    if (status && ["active", "inactive"].includes(status)) query.status = status;
+
+    const sections = await OfferSection.find(query)
+      .sort({ order: 1, createdAt: 1 })
+      .populate("categoryIds", "name")
+      .populate("categoryId", "name")
+      .populate("sellerIds", "shopName name")
+      .lean();
+
+    return handleResponse(res, 200, "Offer sections fetched", sections);
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+export const createOfferSection = async (req, res) => {
+  try {
+    const {
+      title,
+      backgroundColor,
+      sideImageKey,
+      categoryIds = [],
+      sellerIds = [],
+      productIds = [],
+      order,
+      status,
+    } = req.body;
+
+    if (!title || !title.trim()) {
+      return handleResponse(res, 400, "Title is required");
+    }
+    const catIds = Array.isArray(categoryIds) ? categoryIds.filter(Boolean) : [];
+    if (!catIds.length) {
+      return handleResponse(res, 400, "At least one category is required");
+    }
+
+    const count = await OfferSection.countDocuments({});
+    const section = await OfferSection.create({
+      title: title.trim(),
+      backgroundColor: backgroundColor || "#FCD34D",
+      sideImageKey: sideImageKey || "hair-care",
+      categoryIds: catIds,
+      sellerIds: Array.isArray(sellerIds) ? sellerIds.filter(Boolean) : [],
+      productIds: Array.isArray(productIds) ? productIds : [],
+      order: typeof order === "number" ? order : count,
+      status: status || "active",
+    });
+
+    return handleResponse(res, 201, "Offer section created", section);
+  } catch (error) {
+    return handleResponse(res, 400, error.message);
+  }
+};
+
+export const updateOfferSection = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const section = await OfferSection.findById(id);
+    if (!section) return handleResponse(res, 404, "Offer section not found");
+
+    const payload = req.body || {};
+    if (payload.title !== undefined) section.title = payload.title.trim();
+    if (payload.backgroundColor !== undefined)
+      section.backgroundColor = payload.backgroundColor;
+    if (payload.sideImageKey !== undefined)
+      section.sideImageKey = payload.sideImageKey;
+    if (Array.isArray(payload.categoryIds))
+      section.categoryIds = payload.categoryIds.filter(Boolean);
+    if (Array.isArray(payload.sellerIds))
+      section.sellerIds = payload.sellerIds.filter(Boolean);
+    if (Array.isArray(payload.productIds)) section.productIds = payload.productIds;
+    if (payload.order !== undefined) section.order = payload.order;
+    if (payload.status !== undefined) section.status = payload.status;
+
+    await section.save();
+    return handleResponse(res, 200, "Offer section updated", section);
+  } catch (error) {
+    return handleResponse(res, 400, error.message);
+  }
+};
+
+export const deleteOfferSection = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await OfferSection.findByIdAndDelete(id);
+    if (!deleted) return handleResponse(res, 404, "Offer section not found");
+    return handleResponse(res, 200, "Offer section deleted");
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+export const reorderOfferSections = async (req, res) => {
+  try {
+    const { items } = req.body;
+    if (!Array.isArray(items) || !items.length) {
+      return handleResponse(res, 200, "No sections to reorder");
+    }
+    const bulkOps = items
+      .filter((it) => it && it.id)
+      .map((it) => ({
+        updateOne: {
+          filter: { _id: it.id },
+          update: { $set: { order: it.order } },
+        },
+      }));
+    if (bulkOps.length) await OfferSection.bulkWrite(bulkOps);
+    return handleResponse(res, 200, "Sections reordered");
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
