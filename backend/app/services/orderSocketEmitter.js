@@ -28,6 +28,14 @@ function normalizeSellerId(sellerId) {
   return String(sellerId);
 }
 
+function normalizeDeliveryId(deliveryId) {
+  if (deliveryId == null) return null;
+  if (typeof deliveryId === "object" && deliveryId._id) {
+    return deliveryId._id.toString();
+  }
+  return String(deliveryId);
+}
+
 /**
  * Emit workflow status to the order room (clients that joined `join_order`)
  * and optionally to the customer’s personal room so the app updates even before
@@ -124,6 +132,80 @@ export async function emitDeliveryBroadcastForSeller(sellerId, payload) {
     } catch (e) {
       console.warn("[emitDeliveryBroadcastForSeller] notifications", e.message);
     }
+  }
+}
+
+/**
+ * Retract an order request from every delivery partner except the winner.
+ * This clears stale push/in-app notifications and closes any open popup.
+ */
+export async function retractDeliveryBroadcastForOrder(orderId, winnerDeliveryId) {
+  const s = getIo();
+  const winnerId = normalizeDeliveryId(winnerDeliveryId);
+  const winnerObjectId =
+    winnerId && mongoose.Types.ObjectId.isValid(winnerId)
+      ? new mongoose.Types.ObjectId(winnerId)
+      : null;
+
+  try {
+    const query = {
+      recipientModel: "Delivery",
+      type: "order",
+      "data.orderId": orderId,
+    };
+
+    if (winnerObjectId) {
+      query.recipient = { $ne: winnerObjectId };
+    }
+
+    const notifications = await Notification.find(query)
+      .select("_id recipient")
+      .lean();
+
+    if (!notifications.length) {
+      if (s) {
+        s.to("delivery:online").emit("delivery:broadcast:withdrawn", {
+          orderId,
+          winnerDeliveryId: winnerId,
+          at: new Date().toISOString(),
+        });
+      }
+      return { removedCount: 0 };
+    }
+
+    const recipientIds = [
+      ...new Set(
+        notifications
+          .map((n) => n.recipient?.toString?.() || String(n.recipient || ""))
+          .filter(Boolean),
+      ),
+    ];
+
+    if (s) {
+      for (const recipientId of recipientIds) {
+        s.to(`delivery:${recipientId}`).emit("delivery:broadcast:withdrawn", {
+          orderId,
+          winnerDeliveryId: winnerId,
+          at: new Date().toISOString(),
+        });
+      }
+    }
+
+    await Notification.deleteMany({
+      recipientModel: "Delivery",
+      type: "order",
+      "data.orderId": orderId,
+      ...(winnerObjectId ? { recipient: { $ne: winnerObjectId } } : {}),
+    });
+
+    return { removedCount: notifications.length };
+  } catch (error) {
+    console.warn(
+      "[retractDeliveryBroadcastForOrder] failed",
+      orderId,
+      error.message,
+    );
+    return { removedCount: 0 };
   }
 }
 

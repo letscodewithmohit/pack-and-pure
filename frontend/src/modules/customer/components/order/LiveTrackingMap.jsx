@@ -12,6 +12,9 @@ import {
   Search,
   Loader2,
 } from "lucide-react";
+import customerPin from "@/assets/customer-pin.png";
+import deliveryIcon from "@/assets/deliveryIcon.png";
+import storePin from "@/assets/store-pin.png";
 
 const libraries = ["geometry"];
 
@@ -33,12 +36,24 @@ const SEARCHING_STATUSES = [
   "CREATED",
 ];
 
+function hasValidLatLng(location) {
+  return (
+    location &&
+    typeof location.lat === "number" &&
+    typeof location.lng === "number" &&
+    Number.isFinite(location.lat) &&
+    Number.isFinite(location.lng)
+  );
+}
+
 const LiveTrackingMap = memo(({
   status = "out for delivery",
   eta = "8 mins",
   riderName = "Ramesh Kumar",
   riderLocation,
+  sellerLocation,
   destinationLocation,
+  routePhase = "pickup",
   routePolyline,
   onOpenInMaps,
 }) => {
@@ -61,6 +76,12 @@ const LiveTrackingMap = memo(({
     setMapInstance(map);
   }, []);
 
+  const activeTargetLocation = routePhase === "delivery" ? destinationLocation : sellerLocation;
+  const shouldShowStoreMarker =
+    routePhase === "pickup" && hasValidLatLng(sellerLocation);
+  const shouldShowCustomerMarker =
+    routePhase === "delivery" && hasValidLatLng(destinationLocation);
+
   // Decode polyline from Firebase
   const decodedPath = useMemo(() => {
     if (!routePolyline?.polyline || !isLoaded || !window.google?.maps?.geometry?.encoding) {
@@ -79,12 +100,42 @@ const LiveTrackingMap = memo(({
     }
   }, [routePolyline, isLoaded]);
 
+  const riderMarkerIcon = useMemo(() => {
+    if (!isLoaded || !window.google?.maps) return undefined;
+
+    return {
+      url: deliveryIcon,
+      scaledSize: new window.google.maps.Size(44, 64),
+      anchor: new window.google.maps.Point(22, 64),
+    };
+  }, [isLoaded]);
+
+  const customerMarkerIcon = useMemo(() => {
+    if (!isLoaded || !window.google?.maps) return undefined;
+
+    return {
+      url: customerPin,
+      scaledSize: new window.google.maps.Size(40, 40),
+      anchor: new window.google.maps.Point(20, 40),
+    };
+  }, [isLoaded]);
+
+  const storeMarkerIcon = useMemo(() => {
+    if (!isLoaded || !window.google?.maps) return undefined;
+
+    return {
+      url: storePin,
+      scaledSize: new window.google.maps.Size(40, 40),
+      anchor: new window.google.maps.Point(20, 40),
+    };
+  }, [isLoaded]);
+
   // Calculate map center and bounds
   const mapCenter = useMemo(() => {
     if (riderLocation) return riderLocation;
-    if (destinationLocation) return destinationLocation;
+    if (hasValidLatLng(activeTargetLocation)) return activeTargetLocation;
     return { lat: 20.5937, lng: 78.9629 };
-  }, [riderLocation, destinationLocation]);
+  }, [activeTargetLocation, riderLocation]);
 
   // Fit bounds when locations or route change
   useEffect(() => {
@@ -100,13 +151,13 @@ const LiveTrackingMap = memo(({
         decodedPath.forEach((point) => bounds.extend(point));
         hasPoints = true;
       } else {
-        // Fallback to rider and destination
+        // Fallback to rider and current phase destination
         if (riderLocation) {
           bounds.extend(riderLocation);
           hasPoints = true;
         }
-        if (destinationLocation) {
-          bounds.extend(destinationLocation);
+        if (hasValidLatLng(activeTargetLocation)) {
+          bounds.extend(activeTargetLocation);
           hasPoints = true;
         }
       }
@@ -117,7 +168,7 @@ const LiveTrackingMap = memo(({
     } catch (err) {
       console.error("Error fitting bounds:", err);
     }
-  }, [riderLocation, destinationLocation, decodedPath]);
+  }, [activeTargetLocation, riderLocation, decodedPath]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -276,22 +327,25 @@ const LiveTrackingMap = memo(({
           <Marker
             position={riderLocation}
             title="Delivery Partner"
-            icon={{
-              url: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
-              scaledSize: new window.google.maps.Size(40, 40),
-            }}
+            icon={riderMarkerIcon}
+          />
+        )}
+
+        {/* Store Marker */}
+        {shouldShowStoreMarker && (
+          <Marker
+            position={sellerLocation}
+            title="Store Location"
+            icon={storeMarkerIcon}
           />
         )}
 
         {/* Destination Marker */}
-        {destinationLocation && (
+        {shouldShowCustomerMarker && (
           <Marker
             position={destinationLocation}
             title="Your Location"
-            icon={{
-              url: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
-              scaledSize: new window.google.maps.Size(40, 40),
-            }}
+            icon={customerMarkerIcon}
           />
         )}
 
@@ -306,9 +360,9 @@ const LiveTrackingMap = memo(({
               geodesic: false,
             }}
           />
-        ) : riderLocation && destinationLocation ? (
+        ) : riderLocation && hasValidLatLng(activeTargetLocation) ? (
           <Polyline
-            path={[riderLocation, destinationLocation]}
+            path={[riderLocation, activeTargetLocation]}
             options={{
               strokeColor: "#0c831f",
               strokeOpacity: 0.6,
@@ -415,8 +469,12 @@ const LiveTrackingMap = memo(({
     prevProps.riderName === nextProps.riderName &&
     prevProps.riderLocation?.lat === nextProps.riderLocation?.lat &&
     prevProps.riderLocation?.lng === nextProps.riderLocation?.lng &&
+    prevProps.sellerLocation?.lat === nextProps.sellerLocation?.lat &&
+    prevProps.sellerLocation?.lng === nextProps.sellerLocation?.lng &&
     prevProps.destinationLocation?.lat === nextProps.destinationLocation?.lat &&
     prevProps.destinationLocation?.lng === nextProps.destinationLocation?.lng &&
+    prevProps.routePhase === nextProps.routePhase &&
+    prevProps.routePolyline?.phase === nextProps.routePolyline?.phase &&
     prevProps.routePolyline?.polyline === nextProps.routePolyline?.polyline &&
     prevProps.routePolyline?.cachedAt === nextProps.routePolyline?.cachedAt
   );

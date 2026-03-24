@@ -84,15 +84,22 @@ function degradedPayload() {
  * @param {Object} dest - { lat, lng }
  * @param {string} mode - "driving" | "walking" | "bicycling" | "transit"
  * @param {string} orderId - Optional order ID for Firebase caching
+ * @param {string} phase - "pickup" | "delivery"
  */
-export async function getCachedRoute(origin, dest, mode = "driving", orderId = null) {
-  console.log(`[mapsRouteService] getCachedRoute called for order ${orderId || 'N/A'}, mode: ${mode}`);
+export async function getCachedRoute(origin, dest, mode = "driving", orderId = null, phase = "pickup") {
+  console.log(`[mapsRouteService] getCachedRoute called for order ${orderId || 'N/A'}, mode: ${mode}, phase: ${phase}`);
   
   // Try Firebase cache first if orderId is provided
   if (orderId) {
     try {
       const firebaseRoute = await getRoutePolyline(orderId);
-      if (firebaseRoute && firebaseRoute.polyline) {
+      const cachedPhase = firebaseRoute?.phase || "pickup";
+      if (firebaseRoute && firebaseRoute.polyline && cachedPhase !== phase) {
+        console.log(
+          `[mapsRouteService] Firebase route phase mismatch for order ${orderId}: cached=${cachedPhase}, requested=${phase}`,
+        );
+      }
+      if (firebaseRoute && firebaseRoute.polyline && cachedPhase === phase) {
         console.log(`[mapsRouteService] ✓ Firebase cache HIT for order ${orderId}`);
         return {
           polyline: firebaseRoute.polyline,
@@ -101,6 +108,7 @@ export async function getCachedRoute(origin, dest, mode = "driving", orderId = n
           duration: firebaseRoute.duration,
           degraded: false,
           source: 'firebase',
+          phase: cachedPhase,
         };
       } else {
         console.log(`[mapsRouteService] Firebase cache MISS for order ${orderId}`);
@@ -119,7 +127,7 @@ export async function getCachedRoute(origin, dest, mode = "driving", orderId = n
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed?.polyline && !parsed.degraded) {
-          return { ...parsed, source: 'redis' };
+          return { ...parsed, source: 'redis', phase };
         }
       }
     } catch {
@@ -177,6 +185,7 @@ export async function getCachedRoute(origin, dest, mode = "driving", orderId = n
       duration,
       degraded: false,
       source: 'api',
+      phase,
     };
 
     // Cache in Redis
@@ -194,6 +203,7 @@ export async function getCachedRoute(origin, dest, mode = "driving", orderId = n
         console.log(`[mapsRouteService] Writing route to Firebase for order ${orderId}`);
         await writeRoutePolyline(orderId, {
           polyline,
+          phase,
           bounds: route?.bounds || null,
           distance: distanceMeters,
           duration,

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import InvoiceModal from "../components/order/InvoiceModal";
@@ -36,6 +36,40 @@ import {
 } from "@/core/services/orderSocket";
 import { getLegacyStatusFromOrder } from "@/shared/utils/orderStatus";
 
+const coordsToLatLng = (coords) => {
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+
+  const [lng, lat] = coords;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  return { lat, lng };
+};
+
+const hasValidLatLng = (location) =>
+  location &&
+  typeof location.lat === "number" &&
+  typeof location.lng === "number" &&
+  Number.isFinite(location.lat) &&
+  Number.isFinite(location.lng);
+
+const getTrackingRoutePhase = (order) => {
+  if (!order) return "pickup";
+
+  const workflowStatus = String(order.workflowStatus || "").toUpperCase();
+  const legacyStatus = String(order.status || "").toLowerCase();
+  const riderStep = Number(order.deliveryRiderStep) || 0;
+
+  const isDeliveryPhase =
+    workflowStatus === "OUT_FOR_DELIVERY" ||
+    workflowStatus === "DELIVERED" ||
+    legacyStatus === "out_for_delivery" ||
+    legacyStatus === "delivered" ||
+    riderStep >= 3 ||
+    Boolean(order.pickupConfirmedAt);
+
+  return isDeliveryPhase ? "delivery" : "pickup";
+};
+
 const OrderDetailPage = () => {
   const { orderId } = useParams();
   const [showInvoice, setShowInvoice] = useState(false);
@@ -52,6 +86,7 @@ const OrderDetailPage = () => {
   const [trail, setTrail] = useState([]);
   const [routePolyline, setRoutePolyline] = useState(null);
   const [handoffOtp, setHandoffOtp] = useState(null);
+  const routeRequestRef = useRef({ phase: null, startedAt: 0 });
 
   // Scroll to top on load
   useEffect(() => {
@@ -182,6 +217,60 @@ const OrderDetailPage = () => {
     window.open("https://maps.google.com", "_blank");
   };
 
+  const status = order ? getLegacyStatusFromOrder(order) : null;
+  const sellerLocation = coordsToLatLng(order?.seller?.location?.coordinates);
+  const routePhase = getTrackingRoutePhase(order);
+  const routeMatchesPhase =
+    routePhase === "pickup"
+      ? routePolyline?.phase
+        ? routePolyline.phase === routePhase
+        : !!routePolyline?.polyline
+      : routePolyline?.phase === routePhase;
+  const activeRoutePolyline = routeMatchesPhase ? routePolyline : null;
+
+  useEffect(() => {
+    if (!orderId || status === "delivered" || status === "cancelled") return;
+    if (!hasValidLatLng(liveLocation)) return;
+    if (activeRoutePolyline?.polyline) return;
+
+    const now = Date.now();
+    if (
+      routeRequestRef.current.phase === routePhase &&
+      now - routeRequestRef.current.startedAt < 15000
+    ) {
+      return;
+    }
+
+    routeRequestRef.current = { phase: routePhase, startedAt: now };
+    let ignore = false;
+
+    customerApi
+      .getOrderRoute(orderId, {
+        phase: routePhase,
+        originLat: liveLocation.lat,
+        originLng: liveLocation.lng,
+        _t: now,
+      })
+      .then((response) => {
+        if (ignore) return;
+        const nextRoute = response.data?.result;
+        if (nextRoute?.polyline) {
+          setRoutePolyline(nextRoute);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      ignore = true;
+    };
+  }, [
+    activeRoutePolyline?.polyline,
+    liveLocation,
+    orderId,
+    routePhase,
+    status,
+  ]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-50 to-white">
@@ -273,8 +362,6 @@ const OrderDetailPage = () => {
     );
   }
 
-  const status = getLegacyStatusFromOrder(order);
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pb-24 font-sans">
       {/* Minimal Header */}
@@ -304,8 +391,10 @@ const OrderDetailPage = () => {
               eta={status === "delivered" ? "Arrived" : "8 mins"}
               riderName={order.deliveryBoy?.name || "Delivery Partner"}
               riderLocation={liveLocation}
+              sellerLocation={sellerLocation}
               destinationLocation={order.address?.location || null}
-              routePolyline={routePolyline}
+              routePhase={routePhase}
+              routePolyline={activeRoutePolyline}
               onOpenInMaps={handleOpenInMaps}
             />
           </motion.div>

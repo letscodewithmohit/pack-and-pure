@@ -22,13 +22,62 @@ import { Loader2 } from "lucide-react";
 import DeliveryTrackingMap from "../components/DeliveryTrackingMap";
 import DeliverySlideButton from "../components/DeliverySlideButton";
 import OtpInput from "../components/OtpInput";
+import { getCurrentPositionWithCache } from "../utils/deliveryLastLocation";
+
+const getPublicStatusStage = (internalStep) => {
+  if (internalStep >= 4) return 3;
+  if (internalStep >= 3) return 2;
+  return 1;
+};
+
+const PUBLIC_STATUS_STEPS = [
+  { id: 1, label: "Confirmed" },
+  { id: 2, label: "Out for Delivery" },
+  { id: 3, label: "Delivered" },
+];
+
+const getPersistedRiderStep = (order) => {
+  if (!order) return 1;
+
+  const workflowStatus = String(order.workflowStatus || "").toUpperCase();
+  const legacyStatus = String(order.status || "").toLowerCase();
+  const riderStep = Number(order.deliveryRiderStep) || 0;
+
+  if (
+    riderStep >= 4 ||
+    workflowStatus === "DELIVERED" ||
+    legacyStatus === "delivered"
+  ) {
+    return 4;
+  }
+
+  if (
+    riderStep >= 3 ||
+    workflowStatus === "OUT_FOR_DELIVERY" ||
+    legacyStatus === "out_for_delivery" ||
+    order.outForDeliveryAt
+  ) {
+    return 3;
+  }
+
+  if (
+    riderStep >= 2 ||
+    workflowStatus === "PICKUP_READY" ||
+    legacyStatus === "packed" ||
+    order.pickupReadyAt
+  ) {
+    return 2;
+  }
+
+  return 1;
+};
 
 const OrderDetails = () => {
   const { orderId } = useParams();
   const navigate = useNavigate();
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [step, setStep] = useState(1); // 1: Pickup, 2: At Store, 3: Delivering, 4: Delivered
+  const [step, setStep] = useState(1); // Internal rider flow: 1 pickup, 2 at store, 3 delivery, 4 delivered
   const [itemsExpanded, setItemsExpanded] = useState(false);
   const [isSlideComplete, setIsSlideComplete] = useState(false);
   const [dragX, setDragX] = useState(0);
@@ -62,15 +111,7 @@ const OrderDetails = () => {
         const ord = response.data.result;
         setOrder(ord);
 
-        const statusMap = {
-          confirmed: 1,
-          packed: 2,
-          out_for_delivery: 3,
-          delivered: 4,
-        };
-        if (statusMap[ord.status]) {
-          setStep(statusMap[ord.status]);
-        }
+        setStep(getPersistedRiderStep(ord));
       } catch (error) {
         toast.error("Failed to fetch order details");
         navigate("/delivery/dashboard");
@@ -119,6 +160,8 @@ const OrderDetails = () => {
     },
   ];
 
+  const publicStatusStage = getPublicStatusStage(step);
+
   const handleNextStep = async () => {
     const currentStep = steps[step - 1];
 
@@ -143,16 +186,40 @@ const OrderDetails = () => {
           navigate("/delivery/dashboard");
         }
       } else {
-        // Normal forward delivery flow (existing behavior - local step only)
-        toast.success(`${currentStep.action} Confirmed!`);
-        if (step < 4) {
-          setStep(step + 1);
-          setIsSlideComplete(false);
-          setDragX(0);
-          window.scrollTo({ top: 0, behavior: "smooth" });
+        const location = await new Promise((resolve, reject) => {
+          getCurrentPositionWithCache(resolve, reject, {
+            maxCacheAgeMs: 20 * 60 * 1000,
+          });
+        });
+
+        if (step === 1) {
+          const res = await deliveryApi.markArrivedAtStore(order.orderId, {
+            lat: location.lat,
+            lng: location.lng,
+          });
+          const updated = res.data.result;
+          setOrder((prev) => ({ ...(prev || {}), ...updated }));
+          setStep(2);
+          toast.success(`${currentStep.action} Confirmed!`);
+        } else if (step === 2) {
+          const res = await deliveryApi.confirmPickup(order.orderId, {
+            lat: location.lat,
+            lng: location.lng,
+          });
+          const updated = res.data.result;
+          setOrder((prev) => ({ ...(prev || {}), ...updated }));
+          setStep(3);
+          toast.success(`${currentStep.action} Confirmed!`);
+        } else if (step === 3) {
+          setStep(4);
+          toast.success(`${currentStep.action} Confirmed!`);
         } else {
           navigate(`/delivery/confirm-delivery/${order.orderId}`);
         }
+
+        setIsSlideComplete(false);
+        setDragX(0);
+        window.scrollTo({ top: 0, behavior: "smooth" });
       }
     } catch (error) {
       console.error("Failed to update return status", error);
@@ -279,16 +346,18 @@ const OrderDetails = () => {
         <div className="flex flex-col items-end">
           <span
             className={`text-xs font-bold px-3 py-1.5 rounded-full uppercase tracking-wide ${
-              step === 1
+              publicStatusStage === 1
                 ? "bg-blue-100 text-blue-700"
-                : step === 2
-                ? "bg-orange-100 text-orange-700"
-                : step === 4
+                : publicStatusStage === 3
                 ? "bg-emerald-100 text-emerald-700"
                 : "bg-green-100 text-green-700"
             }`}
           >
-            {step === 1 ? "Pickup" : step === 2 ? "At Store" : step === 4 ? "Delivered" : "Delivery"}
+            {publicStatusStage === 1
+              ? "Confirmed"
+              : publicStatusStage === 2
+              ? "Out for Delivery"
+              : "Delivered"}
           </span>
           {(order.payment?.method?.toLowerCase() === "cash" ||
             order.payment?.method?.toLowerCase() === "cod") &&
@@ -359,32 +428,35 @@ const OrderDetails = () => {
                 <motion.div
                   className="absolute top-1/2 left-0 h-1 bg-primary -z-10 rounded-full"
                   initial={{ width: "0%" }}
-                  animate={{ width: `${((step - 1) / 3) * 100}%` }}
+                  animate={{
+                    width: `${((publicStatusStage - 1) / (PUBLIC_STATUS_STEPS.length - 1)) * 100}%`,
+                  }}
                   transition={{ duration: 0.5, ease: "easeInOut" }}
                 ></motion.div>
 
-                {[1, 2, 3, 4].map((s) => (
+                {PUBLIC_STATUS_STEPS.map(({ id, label }) => (
                   <motion.div
-                    key={s}
+                    key={id}
                     initial={false}
                     animate={{
-                      scale: s === step ? 1.2 : 1,
+                      scale: id === publicStatusStage ? 1.15 : 1,
                       backgroundColor:
-                        s <= step ? "var(--primary)" : "#ffffff",
-                      borderColor: s <= step ? "var(--primary)" : "#e5e7eb",
-                      color: s <= step ? "#ffffff" : "#9ca3af",
+                        id <= publicStatusStage ? "var(--primary)" : "#ffffff",
+                      borderColor:
+                        id <= publicStatusStage ? "var(--primary)" : "#e5e7eb",
+                      color: id <= publicStatusStage ? "#ffffff" : "#9ca3af",
                     }}
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 z-10 shadow-sm`}
+                    aria-label={label}
                   >
-                    {s < step ? <CheckCircle size={16} /> : s}
+                    {id < publicStatusStage ? <CheckCircle size={16} /> : id}
                   </motion.div>
                 ))}
               </div>
               <div className="flex justify-between mt-2 text-xs text-gray-500 font-medium px-1">
-                <span>Pickup</span>
-                <span>Store</span>
-                <span>Route</span>
-                <span>Drop</span>
+                {PUBLIC_STATUS_STEPS.map(({ id, label }) => (
+                  <span key={id}>{label}</span>
+                ))}
               </div>
             </Card>
 

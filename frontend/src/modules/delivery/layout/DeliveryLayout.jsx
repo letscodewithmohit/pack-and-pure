@@ -7,7 +7,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { BellRing, MapPin } from "lucide-react";
 import { deliveryApi } from "../services/deliveryApi";
 import { useAuth } from "@/core/context/AuthContext";
-import { getOrderSocket, onDeliveryBroadcast } from "@/core/services/orderSocket";
+import {
+  getOrderSocket,
+  onDeliveryBroadcast,
+  onDeliveryBroadcastWithdrawn,
+} from "@/core/services/orderSocket";
 import {
   loadHandledIncomingOrderIds,
   markIncomingOrderHandled,
@@ -221,6 +225,25 @@ const DeliveryLayout = () => {
         .catch(() => {});
     });
   }, [user?.isOnline, applyAvailableOrdersList, applyFromBroadcastPayload, suppressIncomingModal]);
+
+  useEffect(() => {
+    if (!user?.isOnline) return undefined;
+    const getToken = () => localStorage.getItem("auth_delivery");
+    return onDeliveryBroadcastWithdrawn(getToken, (payload) => {
+      const orderId = payload?.orderId;
+      if (!orderId) return;
+
+      shownOrderIdsRef.current = new Set(shownOrderIdsRef.current).add(orderId);
+      markIncomingOrderHandled(orderId);
+
+      if (activeOrderRef.current?.id === orderId) {
+        acceptInFlightRef.current = false;
+        setIsAcceptingOrder(false);
+        setActiveOrder(null);
+        toast.info("Another delivery partner accepted this order.");
+      }
+    });
+  }, [user?.isOnline]);
 
   // When a new DB notification arrives (same row as bell list), open the same popup if socket was missed
   useEffect(() => {

@@ -34,7 +34,7 @@ function legacyFromWorkflow(workflowStatus) {
       return "confirmed";
     case WORKFLOW_STATUS.DELIVERY_ASSIGNED:
     case WORKFLOW_STATUS.PICKUP_READY:
-      return "packed";
+      return "confirmed";
     case WORKFLOW_STATUS.OUT_FOR_DELIVERY:
       return "out_for_delivery";
     case WORKFLOW_STATUS.DELIVERED:
@@ -54,8 +54,32 @@ export function getLegacyStatusFromOrder(order) {
   if (!order) return "pending";
   const v = Number(order.workflowVersion) || 0;
   if (v >= 2 && order.workflowStatus) {
-    return legacyFromWorkflow(order.workflowStatus);
+    const workflowStatus = String(order.workflowStatus).toUpperCase();
+
+    if (workflowStatus === WORKFLOW_STATUS.OUT_FOR_DELIVERY) {
+      return "out_for_delivery";
+    }
+    if (workflowStatus === WORKFLOW_STATUS.DELIVERED) {
+      return "delivered";
+    }
+    if (
+      workflowStatus === WORKFLOW_STATUS.DELIVERY_ASSIGNED ||
+      workflowStatus === WORKFLOW_STATUS.PICKUP_READY
+    ) {
+      return "confirmed";
+    }
+
+    return legacyFromWorkflow(workflowStatus);
   }
+
+  const riderStep = Number(order.deliveryRiderStep) || 0;
+  if (riderStep >= 3 || order.outForDeliveryAt || order.pickupConfirmedAt) {
+    return "out_for_delivery";
+  }
+  if (riderStep >= 1 || order.assignedAt || order.pickupReadyAt || order.deliveryBoy) {
+    return "confirmed";
+  }
+
   const s = String(order.status ?? "pending").toLowerCase();
   if (LEGACY_ENUM.has(s)) return s;
   return "pending";

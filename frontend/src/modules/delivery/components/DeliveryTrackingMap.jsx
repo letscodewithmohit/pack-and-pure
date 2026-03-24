@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import { GoogleMap, useJsApiLoader, Marker } from "@react-google-maps/api";
 import { Loader2 } from "lucide-react";
+import customerPin from "@/assets/customer-pin.png";
 import { deliveryApi } from "../services/deliveryApi";
+import deliveryIcon from "@/assets/deliveryIcon.png";
+import storePin from "@/assets/store-pin.png";
 import {
   getCachedDeliveryPartnerLocation,
   saveDeliveryPartnerLocation,
@@ -56,7 +59,7 @@ const DeliveryTrackingMapComponent = ({ orderId, phase, order }) => {
   });
   const [routeData, setRouteData] = useState(null);
   const [routeLoading, setRouteLoading] = useState(false);
-  const lastFetchRef = useRef(0);
+  const lastFetchRef = useRef({ at: 0, phase: null, orderId: null });
   const watchIdRef = useRef(null);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
@@ -105,9 +108,16 @@ const DeliveryTrackingMapComponent = ({ orderId, phase, order }) => {
   const fetchRoute = useCallback(async () => {
     if (!orderId || !rider) return;
     const now = Date.now();
-    // Increase throttle to 5 minutes (300000ms) since route is cached in Firebase
-    if (lastFetchRef.current && now - lastFetchRef.current < 300000) return;
-    lastFetchRef.current = now;
+    const sameRouteContext =
+      lastFetchRef.current.phase === phase &&
+      lastFetchRef.current.orderId === orderId;
+
+    // Keep the 5 minute throttle only while the route context stays the same.
+    if (sameRouteContext && lastFetchRef.current.at && now - lastFetchRef.current.at < 300000) {
+      return;
+    }
+
+    lastFetchRef.current = { at: now, phase, orderId };
     setRouteLoading(true);
     try {
       const res = await deliveryApi.getOrderRoute(orderId, {
@@ -125,6 +135,11 @@ const DeliveryTrackingMapComponent = ({ orderId, phase, order }) => {
       setRouteLoading(false);
     }
   }, [orderId, phase, rider]);
+
+  useEffect(() => {
+    setRouteData((prev) => (prev?.phase === phase ? prev : null));
+    lastFetchRef.current = { at: 0, phase: null, orderId: null };
+  }, [orderId, phase]);
 
   useEffect(() => {
     if (!rider) return undefined;
@@ -153,6 +168,36 @@ const DeliveryTrackingMapComponent = ({ orderId, phase, order }) => {
     if (decodedPath?.length) return decodedPath;
     return [];
   }, [decodedPath]);
+
+  const riderMarkerIcon = useMemo(() => {
+    if (!isLoaded || !window.google?.maps) return undefined;
+
+    return {
+      url: deliveryIcon,
+      scaledSize: new window.google.maps.Size(44, 64),
+      anchor: new window.google.maps.Point(22, 64),
+    };
+  }, [isLoaded]);
+
+  const customerMarkerIcon = useMemo(() => {
+    if (!isLoaded || !window.google?.maps) return undefined;
+
+    return {
+      url: customerPin,
+      scaledSize: new window.google.maps.Size(40, 40),
+      anchor: new window.google.maps.Point(20, 40),
+    };
+  }, [isLoaded]);
+
+  const storeMarkerIcon = useMemo(() => {
+    if (!isLoaded || !window.google?.maps) return undefined;
+
+    return {
+      url: storePin,
+      scaledSize: new window.google.maps.Size(40, 40),
+      anchor: new window.google.maps.Point(20, 40),
+    };
+  }, [isLoaded]);
 
   const mapCenter = useMemo(() => {
     if (rider) return rider;
@@ -299,18 +344,14 @@ const DeliveryTrackingMapComponent = ({ orderId, phase, order }) => {
           <Marker
             position={rider}
             title="Your location"
-            icon="https://maps.google.com/mapfiles/ms/icons/blue-dot.png"
+            icon={riderMarkerIcon}
           />
         )}
         {dest && (
           <Marker
             position={dest}
             title={phase === "pickup" ? "Pickup (store)" : "Drop (customer)"}
-            icon={
-              phase === "pickup"
-                ? "https://maps.google.com/mapfiles/ms/icons/orange-dot.png"
-                : "https://maps.google.com/mapfiles/ms/icons/green-dot.png"
-            }
+            icon={phase === "pickup" ? storeMarkerIcon : customerMarkerIcon}
           />
         )}
       </GoogleMap>

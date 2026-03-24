@@ -34,9 +34,9 @@ export function legacyStatusFromWorkflow(workflowStatus) {
     case WORKFLOW_STATUS.DELIVERY_SEARCH:
       return "confirmed";
     case WORKFLOW_STATUS.DELIVERY_ASSIGNED:
-      return "packed";
+      return "confirmed";
     case WORKFLOW_STATUS.PICKUP_READY:
-      return "packed";
+      return "confirmed";
     case WORKFLOW_STATUS.OUT_FOR_DELIVERY:
       return "out_for_delivery";
     case WORKFLOW_STATUS.DELIVERED:

@@ -23,6 +23,7 @@ import {
   emitToSeller,
   emitDeliveryBroadcastForSeller,
   emitToCustomer,
+  retractDeliveryBroadcastForOrder,
 } from "./orderSocketEmitter.js";
 import { distanceMeters } from "../utils/geoUtils.js";
 import { applyDeliveredSettlement } from "./orderSettlement.js";
@@ -448,6 +449,8 @@ export async function deliveryAcceptAtomic(deliveryId, orderId, idempotencyKey) 
     type: "order",
     data: { orderId: updated.orderId, mongoOrderId: updated._id },
   });
+
+  await retractDeliveryBroadcastForOrder(updated.orderId, deliveryOid);
 
   emitOrderStatusUpdate(
     updated.orderId,

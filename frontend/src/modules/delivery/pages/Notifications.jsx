@@ -14,6 +14,10 @@ import Button from "@/shared/components/ui/Button";
 import Card from "@/shared/components/ui/Card";
 import { deliveryApi } from "../services/deliveryApi";
 import { toast } from "sonner";
+import {
+  getOrderSocket,
+  onDeliveryBroadcastWithdrawn,
+} from "@/core/services/orderSocket";
 
 const Notifications = () => {
   const navigate = useNavigate();
@@ -36,6 +40,19 @@ const Notifications = () => {
 
   useEffect(() => {
     fetchNotifications();
+  }, []);
+
+  useEffect(() => {
+    const getToken = () => localStorage.getItem("auth_delivery");
+    getOrderSocket(getToken);
+    return onDeliveryBroadcastWithdrawn(getToken, (payload) => {
+      const orderId = payload?.orderId;
+      if (!orderId) return;
+      setNotifications((current) =>
+        current.filter((notification) => notification?.data?.orderId !== orderId),
+      );
+      toast.info("An order request was accepted by another partner.");
+    });
   }, []);
 
   const handleMarkAsRead = async (id) => {

@@ -92,6 +92,7 @@ export const writeRoutePolyline = async (orderId, routeData) => {
 
     const routeCache = {
       polyline: routeData.polyline,
+      phase: routeData.phase || null,
       distance: routeData.distance,
       duration: routeData.duration,
       bounds: routeData.bounds,

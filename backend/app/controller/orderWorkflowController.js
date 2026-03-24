@@ -119,7 +119,7 @@ export const getOrderRoute = async (req, res) => {
       dest = { lat: c.lat, lng: c.lng };
     }
 
-    const route = await getCachedRoute(origin, dest, "driving", orderId);
+    const route = await getCachedRoute(origin, dest, "driving", orderId, phase);
     return handleResponse(res, 200, "Route", route);
   } catch (e) {
     return handleResponse(res, 500, e.message);
