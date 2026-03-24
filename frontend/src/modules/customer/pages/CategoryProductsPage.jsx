@@ -13,11 +13,13 @@ import { useProductDetail } from '../context/ProductDetailContext';
 import { customerApi } from '../services/customerApi';
 import MiniCart from '../components/shared/MiniCart';
 import SectionRenderer from "../components/experience/SectionRenderer";
+import { useLocation as useAppLocation } from '../context/LocationContext';
 
 const CategoryProductsPage = () => {
     const { categoryName: catId } = useParams();
     const navigate = useNavigate();
     const location = useLocation();
+    const { currentLocation } = useAppLocation();
     const initialSubcategoryId = location.state?.activeSubcategoryId || 'all';
     const { isOpen: isProductDetailOpen } = useProductDetail();
     const [selectedSubCategory, setSelectedSubCategory] = useState(initialSubcategoryId);
@@ -29,28 +31,40 @@ const CategoryProductsPage = () => {
     const fetchData = async () => {
         setIsLoading(true);
         try {
-            // Fetch products for this category
-            const prodRes = await customerApi.getProducts({ categoryId: catId });
-            if (prodRes.data.success) {
-                const rawResult = prodRes.data.result;
-                const dbProds = Array.isArray(prodRes.data.results)
-                    ? prodRes.data.results
-                    : Array.isArray(rawResult?.items)
-                    ? rawResult.items
-                    : Array.isArray(rawResult)
-                    ? rawResult
-                    : [];
+            const hasValidLocation =
+                Number.isFinite(currentLocation?.latitude) &&
+                Number.isFinite(currentLocation?.longitude);
 
-                const formattedProds = dbProds.map(p => ({
-                    ...p,
-                    id: p._id,
-                    image: p.mainImage || p.image || "https://images.unsplash.com/photo-1550989460-0adf9ea622e2",
-                    price: p.salePrice || p.price,
-                    originalPrice: p.price,
-                    weight: p.weight || "1 unit",
-                    deliveryTime: "8-15 mins"
-                }));
-                setProducts(Array.isArray(formattedProds) ? formattedProds : []);
+            if (hasValidLocation) {
+                // Fetch products for this category
+                const prodRes = await customerApi.getProducts({
+                    categoryId: catId,
+                    lat: currentLocation.latitude,
+                    lng: currentLocation.longitude,
+                });
+                if (prodRes.data.success) {
+                    const rawResult = prodRes.data.result;
+                    const dbProds = Array.isArray(prodRes.data.results)
+                        ? prodRes.data.results
+                        : Array.isArray(rawResult?.items)
+                        ? rawResult.items
+                        : Array.isArray(rawResult)
+                        ? rawResult
+                        : [];
+
+                    const formattedProds = dbProds.map(p => ({
+                        ...p,
+                        id: p._id,
+                        image: p.mainImage || p.image || "https://images.unsplash.com/photo-1550989460-0adf9ea622e2",
+                        price: p.salePrice || p.price,
+                        originalPrice: p.price,
+                        weight: p.weight || "1 unit",
+                        deliveryTime: "8-15 mins"
+                    }));
+                    setProducts(Array.isArray(formattedProds) ? formattedProds : []);
+                }
+            } else {
+                setProducts([]);
             }
 
             // Fetch subcategories & header mapping
@@ -89,7 +103,7 @@ const CategoryProductsPage = () => {
     useEffect(() => {
         fetchData();
         setSelectedSubCategory(location.state?.activeSubcategoryId || 'all');
-    }, [catId, location.state?.activeSubcategoryId]);
+    }, [catId, location.state?.activeSubcategoryId, currentLocation?.latitude, currentLocation?.longitude]);
 
     const safeProducts = Array.isArray(products) ? products : [];
 

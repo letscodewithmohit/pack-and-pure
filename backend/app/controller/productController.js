@@ -1,9 +1,33 @@
 import Product from "../models/product.js";
-import Seller from "../models/seller.js";
-import { handleResponse, calculateDistance } from "../utils/helper.js";
+import { handleResponse } from "../utils/helper.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
 import { slugify } from "../utils/slugify.js";
 import getPagination from "../utils/pagination.js";
+import {
+  parseCustomerCoordinates,
+  getNearbySellerIdsForCustomer,
+} from "../services/customerVisibilityService.js";
+
+function isCustomerVisibilityRequest(req) {
+  const role = String(req.user?.role || "").toLowerCase();
+  return !role || role === "customer" || role === "user";
+}
+
+function parseSellerIdFilters({ sellerId, sellerIds }) {
+  if (typeof sellerIds === "string" && sellerIds.trim()) {
+    return sellerIds
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .map(String);
+  }
+
+  if (sellerId) {
+    return [String(sellerId)];
+  }
+
+  return [];
+}
 
 /* ===============================
    GET ALL PRODUCTS (Public/Admin)
@@ -26,6 +50,7 @@ export const getProducts = async (req, res) => {
       lat,
       lng,
     } = req.query;
+    const enforceRadius = isCustomerVisibilityRequest(req);
 
     const query = {};
     if (search) {
@@ -41,46 +66,23 @@ export const getProducts = async (req, res) => {
     if (finalCategoryId) query.categoryId = finalCategoryId;
     if (finalSubcategoryId) query.subcategoryId = finalSubcategoryId;
 
-    // Filter by nearby sellers if lat/lng provided
-    if (lat && lng) {
-      const customerLat = Number(lat);
-      const customerLng = Number(lng);
+    const requestedSellerIds = parseSellerIdFilters({ sellerId, sellerIds });
+    const coords = parseCustomerCoordinates({ lat, lng });
+    const shouldApplyLocationFilter = enforceRadius || coords.valid;
+    if (enforceRadius && !coords.valid) {
+      return handleResponse(
+        res,
+        400,
+        "lat and lng are required for customer product visibility",
+      );
+    }
+    if (shouldApplyLocationFilter) {
+      const nearbySellerIds = await getNearbySellerIdsForCustomer(
+        coords.lat,
+        coords.lng,
+      );
 
-      // Find sellers nearby (relaxing isVerified for easier testing/onboarding)
-      // In production, you'd likely want isActive: true and isVerified: true
-      const sellers = await Seller.find({
-        isActive: true,
-        location: {
-          $near: {
-            $geometry: {
-              type: "Point",
-              coordinates: [customerLng, customerLat],
-            },
-            $maxDistance: 100000, // 100km max search area
-          },
-        },
-      }).lean();
-
-      const nearbySellerIds = sellers
-        .filter((seller) => {
-          if (!seller.location || !seller.location.coordinates) return false;
-          const sLng = seller.location.coordinates[0];
-          const sLat = seller.location.coordinates[1];
-
-          const distance = calculateDistance(
-            customerLat,
-            customerLng,
-            sLat,
-            sLng,
-          );
-          return distance <= (seller.serviceRadius || 5);
-        })
-        .map((seller) => seller._id);
-
-      if (nearbySellerIds.length > 0) {
-        query.sellerId = { $in: nearbySellerIds };
-      } else {
-        // No sellers found within their specific radii
+      if (!nearbySellerIds.length) {
         return handleResponse(res, 200, "No sellers found in your area", {
           items: [],
           page: 1,
@@ -89,6 +91,23 @@ export const getProducts = async (req, res) => {
           totalPages: 1,
         });
       }
+
+      const nearbySet = new Set(nearbySellerIds.map(String));
+      const finalSellerIds = requestedSellerIds.length
+        ? requestedSellerIds.filter((id) => nearbySet.has(String(id)))
+        : nearbySellerIds;
+
+      if (!finalSellerIds.length) {
+        return handleResponse(res, 200, "No products available in your area", {
+          items: [],
+          page: 1,
+          limit: 24,
+          total: 0,
+          totalPages: 1,
+        });
+      }
+
+      query.sellerId = { $in: finalSellerIds };
     }
 
     // Ensure we only show active products for public queries
@@ -107,14 +126,16 @@ export const getProducts = async (req, res) => {
       if (ids.length) query.categoryId = { $in: ids };
     }
     // Multiple sellers: sellerIds=id1,id2 (or single sellerId)
-    if (sellerIds && typeof sellerIds === "string") {
-      const ids = sellerIds
-        .split(",")
-        .map((id) => id.trim())
-        .filter(Boolean);
-      if (ids.length) query.sellerId = { $in: ids };
-    } else if (sellerId) {
-      query.sellerId = sellerId;
+    if (!query.sellerId) {
+      if (sellerIds && typeof sellerIds === "string") {
+        const ids = sellerIds
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean);
+        if (ids.length) query.sellerId = { $in: ids };
+      } else if (sellerId) {
+        query.sellerId = sellerId;
+      }
     }
 
     if (featured !== undefined) query.isFeatured = featured === "true";
@@ -389,6 +410,25 @@ export const deleteProduct = async (req, res) => {
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
+    const enforceRadius = isCustomerVisibilityRequest(req);
+
+    let nearbySellerSet = null;
+    const coords = parseCustomerCoordinates(req.query || {});
+    if (enforceRadius) {
+      if (!coords.valid) {
+        return handleResponse(
+          res,
+          400,
+          "lat and lng are required for customer product visibility",
+        );
+      }
+      const nearbySellerIds = await getNearbySellerIdsForCustomer(
+        coords.lat,
+        coords.lng,
+      );
+      nearbySellerSet = new Set(nearbySellerIds.map(String));
+    }
+
     const product = await Product.findById(id)
       .populate("headerId", "name")
       .populate("categoryId", "name")
@@ -397,6 +437,13 @@ export const getProductById = async (req, res) => {
 
     if (!product) {
       return handleResponse(res, 404, "Product not found");
+    }
+
+    if (enforceRadius) {
+      const sellerIdForProduct = String(product.sellerId?._id || product.sellerId);
+      if (!nearbySellerSet || !nearbySellerSet.has(sellerIdForProduct)) {
+        return handleResponse(res, 404, "Product not available in your area");
+      }
     }
 
     return handleResponse(res, 200, "Product details fetched", product);

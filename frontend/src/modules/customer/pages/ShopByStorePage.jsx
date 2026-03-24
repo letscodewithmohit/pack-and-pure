@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Tag, Sparkles, ChevronRight } from "lucide-react";
 import { customerApi } from "../services/customerApi";
 import ProductCard from "../components/shared/ProductCard";
+import { useLocation as useAppLocation } from "../context/LocationContext";
 import {
   getSideImageByKey,
   getBackgroundColorByValue,
@@ -22,15 +23,31 @@ const mapProduct = (p) => ({
 });
 
 const ShopByStorePage = () => {
+  const { currentLocation } = useAppLocation();
   const [sections, setSections] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeStoreId, setActiveStoreId] = useState(null);
 
   useEffect(() => {
     const load = async () => {
+      const hasValidLocation =
+        Number.isFinite(currentLocation?.latitude) &&
+        Number.isFinite(currentLocation?.longitude);
+      if (!hasValidLocation) {
+        setIsLoading(false);
+        setSections([]);
+        setActiveStoreId(null);
+        return;
+      }
+
       setIsLoading(true);
       try {
-        const res = await customerApi.getOfferSections().catch(() => ({ data: {} }));
+        const res = await customerApi
+          .getOfferSections({
+            lat: currentLocation.latitude,
+            lng: currentLocation.longitude,
+          })
+          .catch(() => ({ data: {} }));
         const list =
           res.data?.results || res.data?.result || res.data || [];
         const normalized = Array.isArray(list) ? list : [];
@@ -45,7 +62,7 @@ const ShopByStorePage = () => {
       }
     };
     load();
-  }, []);
+  }, [currentLocation?.latitude, currentLocation?.longitude]);
 
   const sortedStores = useMemo(
     () => [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation as useRouterLocation } from 'react-router-dom';
 import { Search, Mic, ArrowLeft, X, TrendingUp, ChevronRight, History } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { customerApi } from '../services/customerApi';
@@ -7,12 +7,14 @@ import ProductCard from '../components/shared/ProductCard';
 import { useProductDetail } from '../context/ProductDetailContext';
 import { useSettings } from '@core/context/SettingsContext';
 import { cn } from '@/lib/utils';
+import { useLocation as useAppLocation } from '../context/LocationContext';
 
 const SearchPage = () => {
     const navigate = useNavigate();
-    const location = useLocation();
+    const location = useRouterLocation();
     const { isOpen: isProductDetailOpen } = useProductDetail();
     const { settings } = useSettings();
+    const { currentLocation } = useAppLocation();
     const appName = settings?.appName || 'App';
 
     // Get initial query from URL state or params
@@ -40,11 +42,30 @@ const SearchPage = () => {
     // Fetch products
     useEffect(() => {
         const fetchProducts = async () => {
+            const hasValidLocation =
+                Number.isFinite(currentLocation?.latitude) &&
+                Number.isFinite(currentLocation?.longitude);
+            if (!hasValidLocation) {
+                setAllProducts([]);
+                setIsLoading(false);
+                return;
+            }
             setIsLoading(true);
             try {
-                const response = await customerApi.getProducts({ limit: 100 });
+                const response = await customerApi.getProducts({
+                    limit: 100,
+                    lat: currentLocation.latitude,
+                    lng: currentLocation.longitude,
+                });
                 if (response.data.success) {
-                    const dbProds = response.data.results || response.data.result || [];
+                    const rawResult = response.data.result;
+                    const dbProds = Array.isArray(response.data.results)
+                        ? response.data.results
+                        : Array.isArray(rawResult?.items)
+                        ? rawResult.items
+                        : Array.isArray(rawResult)
+                        ? rawResult
+                        : [];
                     const formattedProds = dbProds.map(p => ({
                         ...p,
                         id: p._id,
@@ -63,7 +84,7 @@ const SearchPage = () => {
             }
         };
         fetchProducts();
-    }, []);
+    }, [currentLocation?.latitude, currentLocation?.longitude]);
 
     // Save search term to history
     const saveSearch = (term) => {

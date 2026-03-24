@@ -458,20 +458,32 @@ const Home = () => {
   const fetchData = async () => {
     setIsLoading(true);
     try {
+      const hasValidLocation =
+        Number.isFinite(currentLocation?.latitude) &&
+        Number.isFinite(currentLocation?.longitude);
       const productParams = { limit: 20 };
-      if (currentLocation?.latitude && currentLocation?.longitude) {
+      if (hasValidLocation) {
         productParams.lat = currentLocation.latitude;
         productParams.lng = currentLocation.longitude;
       }
 
-      const [catRes, prodRes, expRes, sectionsRes] = await Promise.all([
-        customerApi.getCategories(),
-        customerApi.getProducts(productParams),
-        customerApi
-          .getExperienceSections({ pageType: "home" })
-          .catch(() => null),
-        customerApi.getOfferSections().catch(() => ({ data: {} })),
-      ]);
+        const [catRes, prodRes, expRes, sectionsRes] = await Promise.all([
+          customerApi.getCategories(),
+          hasValidLocation
+            ? customerApi.getProducts(productParams)
+            : Promise.resolve({ data: { success: true, result: { items: [] } } }),
+          customerApi
+            .getExperienceSections({ pageType: "home" })
+            .catch(() => null),
+          hasValidLocation
+            ? customerApi
+                .getOfferSections({
+                  lat: currentLocation.latitude,
+                  lng: currentLocation.longitude,
+                })
+                .catch(() => ({ data: {} }))
+            : Promise.resolve({ data: { results: [] } }),
+        ]);
 
       if (catRes.data.success) {
         const dbCats = catRes.data.results || catRes.data.result || [];

@@ -13,7 +13,7 @@ export const customerApi = {
   getCategories: (params) =>
     getWithDedupe("/categories", params, { ttl: 60 * 1000 }), // 1 min for categories
   getProducts: (params) => getWithDedupe("/products", params),
-  getProductById: (id) => getWithDedupe(`/products/${id}`),
+  getProductById: (id, params) => getWithDedupe(`/products/${id}`, params),
 
   // Sellers & Location
   getNearbySellers: (params) => getWithDedupe("/seller/nearby", params),
@@ -92,7 +92,7 @@ export const customerApi = {
   // Public offers
   getOffers: () => getWithDedupe("/offers"),
   // Offer sections (category → products, banner + side image)
-  getOfferSections: () => getWithDedupe("/offer-sections"),
+  getOfferSections: (params) => getWithDedupe("/offer-sections", params),
 
   // Coupons
   validateCoupon: (data) => axiosInstance.post("/coupons/validate", data),

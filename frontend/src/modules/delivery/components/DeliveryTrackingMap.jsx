@@ -13,6 +13,8 @@ import {
 const libraries = ["geometry"];
 const ROUTE_REFRESH_THRESHOLD_M = 150;
 const ROUTE_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+const RECENTER_INTERVAL_MS = 15000;
+const RIDER_FOCUS_RADIUS_M = 500;
 
 // Container style will be 100% to fill parent
 const containerStyle = {
@@ -269,6 +271,22 @@ const DeliveryTrackingMapComponent = ({
     setMapInstance(map);
   }, []);
 
+  const focusOnRider500m = useCallback((map, riderLocation) => {
+    if (!map || !window.google?.maps?.geometry?.spherical || !riderLocation) return;
+
+    const center = new window.google.maps.LatLng(riderLocation.lat, riderLocation.lng);
+    const bounds = new window.google.maps.LatLngBounds();
+    [0, 90, 180, 270].forEach((heading) => {
+      const edge = window.google.maps.geometry.spherical.computeOffset(
+        center,
+        RIDER_FOCUS_RADIUS_M,
+        heading,
+      );
+      bounds.extend(edge);
+    });
+    map.fitBounds(bounds, 24);
+  }, []);
+
   const strokeColor = "#2563eb";
 
   useEffect(() => {
@@ -301,6 +319,12 @@ const DeliveryTrackingMapComponent = ({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.google) return;
+
+    if (rider) {
+      focusOnRider500m(map, rider);
+      return;
+    }
+
     try {
       const bounds = new window.google.maps.LatLngBounds();
       if (linePath?.length) {
@@ -312,7 +336,23 @@ const DeliveryTrackingMapComponent = ({
     } catch {
       /* ignore */
     }
-  }, [linePath, rider, dest]);
+  }, [linePath, rider, dest, focusOnRider500m]);
+
+  // Smoothly keep rider centered and zoomed to 500m view.
+  useEffect(() => {
+    if (!isLoaded || !rider) return undefined;
+    const map = mapRef.current;
+    if (!map) return undefined;
+
+    const id = setInterval(() => {
+      const currentMap = mapRef.current;
+      if (!currentMap || !rider) return;
+      currentMap.panTo(rider);
+      focusOnRider500m(currentMap, rider);
+    }, RECENTER_INTERVAL_MS);
+
+    return () => clearInterval(id);
+  }, [isLoaded, rider?.lat, rider?.lng, focusOnRider500m]);
 
   // Add resize observer to handle dynamic height changes
   useEffect(() => {
@@ -321,8 +361,12 @@ const DeliveryTrackingMapComponent = ({
 
     const handleResize = () => {
       window.google.maps.event.trigger(map, 'resize');
-      // Re-fit bounds after resize
+      // Re-focus rider after resize when available
       try {
+        if (rider) {
+          focusOnRider500m(map, rider);
+          return;
+        }
         const bounds = new window.google.maps.LatLngBounds();
         if (linePath?.length) {
           linePath.forEach((p) => bounds.extend(p));
@@ -355,7 +399,7 @@ const DeliveryTrackingMapComponent = ({
         resizeObserver.disconnect();
       }
     };
-  }, [linePath, rider, dest]);
+  }, [linePath, rider, dest, focusOnRider500m]);
 
   if (!apiKey) {
     return (

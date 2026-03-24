@@ -1,17 +1,61 @@
 import OfferSection from "../models/offerSection.js";
 import handleResponse from "../utils/helper.js";
+import {
+  parseCustomerCoordinates,
+  getNearbySellerIdsForCustomer,
+} from "../services/customerVisibilityService.js";
 
 export const getPublicOfferSections = async (req, res) => {
   try {
+    const coords = parseCustomerCoordinates(req.query || {});
+    if (!coords.valid) {
+      return handleResponse(
+        res,
+        400,
+        "lat and lng are required for customer offer visibility",
+      );
+    }
+
+    const nearbySellerIds = await getNearbySellerIdsForCustomer(
+      coords.lat,
+      coords.lng,
+    );
+    const nearbySellerSet = new Set(nearbySellerIds.map(String));
+
     const sections = await OfferSection.find({ status: "active" })
       .sort({ order: 1, createdAt: 1 })
       .populate("categoryIds", "name slug image")
       .populate("categoryId", "name slug image")
       .populate("sellerIds", "shopName name logo")
-      .populate("productIds", "name slug price salePrice mainImage stock unit")
+      .populate(
+        "productIds",
+        "name slug price salePrice mainImage stock unit sellerId",
+      )
       .lean();
 
-    return handleResponse(res, 200, "Offer sections fetched", sections);
+    const filteredSections = sections.map((section) => {
+      const sellerIds = Array.isArray(section.sellerIds)
+        ? section.sellerIds.filter((seller) => {
+            const sid = String(seller?._id || seller || "");
+            return sid && nearbySellerSet.has(sid);
+          })
+        : [];
+
+      const productIds = Array.isArray(section.productIds)
+        ? section.productIds.filter((product) => {
+            const sid = String(product?.sellerId?._id || product?.sellerId || "");
+            return sid && nearbySellerSet.has(sid);
+          })
+        : [];
+
+      return {
+        ...section,
+        sellerIds,
+        productIds,
+      };
+    });
+
+    return handleResponse(res, 200, "Offer sections fetched", filteredSections);
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }

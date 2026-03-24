@@ -23,6 +23,8 @@ const containerStyle = {
   height: "100%",
   minHeight: "350px",
 };
+const RECENTER_INTERVAL_MS = 15000;
+const RIDER_FOCUS_RADIUS_M = 500;
 
 /** Delivery / rider search — not the same as waiting for seller acceptance */
 const SEARCHING_STATUSES = [
@@ -74,6 +76,22 @@ const LiveTrackingMap = memo(({
   const onMapLoad = useCallback((map) => {
     mapRef.current = map;
     setMapInstance(map);
+  }, []);
+
+  const focusOnRider500m = useCallback((map, rider) => {
+    if (!map || !window.google || !hasValidLatLng(rider)) return;
+    const center = new window.google.maps.LatLng(rider.lat, rider.lng);
+    const bounds = new window.google.maps.LatLngBounds();
+    const offsets = [0, 90, 180, 270];
+    offsets.forEach((heading) => {
+      const point = window.google.maps.geometry.spherical.computeOffset(
+        center,
+        RIDER_FOCUS_RADIUS_M,
+        heading,
+      );
+      bounds.extend(point);
+    });
+    map.fitBounds(bounds, 24);
   }, []);
 
   const activeTargetLocation = routePhase === "delivery" ? destinationLocation : sellerLocation;
@@ -141,6 +159,11 @@ const LiveTrackingMap = memo(({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !window.google) return;
+
+    if (hasValidLatLng(riderLocation)) {
+      focusOnRider500m(map, riderLocation);
+      return;
+    }
     
     try {
       const bounds = new window.google.maps.LatLngBounds();
@@ -168,7 +191,21 @@ const LiveTrackingMap = memo(({
     } catch (err) {
       console.error("Error fitting bounds:", err);
     }
-  }, [activeTargetLocation, riderLocation, decodedPath]);
+  }, [activeTargetLocation, riderLocation, decodedPath, focusOnRider500m]);
+
+  // Keep rider centered during live tracking with a smooth map pan.
+  useEffect(() => {
+    if (!isLoaded || !mapRef.current || !hasValidLatLng(riderLocation)) return undefined;
+
+    const intervalId = setInterval(() => {
+      const map = mapRef.current;
+      if (!map || !hasValidLatLng(riderLocation)) return;
+      map.panTo(riderLocation);
+      focusOnRider500m(map, riderLocation);
+    }, RECENTER_INTERVAL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [isLoaded, riderLocation?.lat, riderLocation?.lng, focusOnRider500m]);
 
   useEffect(() => {
     const interval = setInterval(() => {
