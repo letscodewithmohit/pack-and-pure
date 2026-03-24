@@ -11,6 +11,8 @@ import {
 } from "../utils/deliveryLastLocation";
 
 const libraries = ["geometry"];
+const ROUTE_REFRESH_THRESHOLD_M = 150;
+const ROUTE_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
 // Container style will be 100% to fill parent
 const containerStyle = {
@@ -25,6 +27,32 @@ function coordsToLatLng(coords) {
   const [lng, lat] = coords;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   return { lat, lng };
+}
+
+function distanceMeters(from, to) {
+  if (!from || !to) return null;
+  if (
+    typeof from.lat !== "number" ||
+    typeof from.lng !== "number" ||
+    typeof to.lat !== "number" ||
+    typeof to.lng !== "number" ||
+    !Number.isFinite(from.lat) ||
+    !Number.isFinite(from.lng) ||
+    !Number.isFinite(to.lat) ||
+    !Number.isFinite(to.lng)
+  ) {
+    return null;
+  }
+
+  const r = 6371000;
+  const dLat = ((to.lat - from.lat) * Math.PI) / 180;
+  const dLng = ((to.lng - from.lng) * Math.PI) / 180;
+  const lat1 = (from.lat * Math.PI) / 180;
+  const lat2 = (to.lat * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * r * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function destinationForPhase(order, phase) {
@@ -49,7 +77,12 @@ function destinationForPhase(order, phase) {
  * Uses a single native google.maps.Polyline (ref) so the React wrapper cannot leave
  * duplicate overlays. No geodesic rider→dest line — that caused a second “straight” path.
  */
-const DeliveryTrackingMapComponent = ({ orderId, phase, order }) => {
+const DeliveryTrackingMapComponent = ({
+  orderId,
+  phase,
+  order,
+  onRouteStatsChange,
+}) => {
   const mapRef = useRef(null);
   const routePolylineRef = useRef(null);
   const [mapInstance, setMapInstance] = useState(null);
@@ -60,6 +93,7 @@ const DeliveryTrackingMapComponent = ({ orderId, phase, order }) => {
   const [routeData, setRouteData] = useState(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const lastFetchRef = useRef({ at: 0, phase: null, orderId: null });
+  const routeOriginRef = useRef(null);
   const watchIdRef = useRef(null);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
@@ -111,9 +145,19 @@ const DeliveryTrackingMapComponent = ({ orderId, phase, order }) => {
     const sameRouteContext =
       lastFetchRef.current.phase === phase &&
       lastFetchRef.current.orderId === orderId;
+    const originDrift =
+      routeOriginRef.current && rider
+        ? distanceMeters(routeOriginRef.current, rider)
+        : null;
 
-    // Keep the 5 minute throttle only while the route context stays the same.
-    if (sameRouteContext && lastFetchRef.current.at && now - lastFetchRef.current.at < 300000) {
+    // Keep the 10 minute throttle only while the route context stays the same
+    // and the rider has not moved far enough to make the cached path stale.
+    if (
+      sameRouteContext &&
+      lastFetchRef.current.at &&
+      now - lastFetchRef.current.at < ROUTE_REFRESH_INTERVAL_MS &&
+      (originDrift === null || originDrift < ROUTE_REFRESH_THRESHOLD_M)
+    ) {
       return;
     }
 
@@ -127,7 +171,9 @@ const DeliveryTrackingMapComponent = ({ orderId, phase, order }) => {
         _t: now,
       });
       if (res.data?.success) {
-        setRouteData(res.data.result || res.data.data || null);
+        const nextRoute = res.data.result || res.data.data || null;
+        setRouteData(nextRoute);
+        routeOriginRef.current = rider ? { lat: rider.lat, lng: rider.lng } : null;
       }
     } catch {
       setRouteData((prev) => prev || { degraded: true });
@@ -139,17 +185,30 @@ const DeliveryTrackingMapComponent = ({ orderId, phase, order }) => {
   useEffect(() => {
     setRouteData((prev) => (prev?.phase === phase ? prev : null));
     lastFetchRef.current = { at: 0, phase: null, orderId: null };
+    routeOriginRef.current = null;
   }, [orderId, phase]);
 
   useEffect(() => {
     if (!rider) return undefined;
     fetchRoute();
-    // Increase interval to 5 minutes (300000ms) since route doesn't change frequently
-    const iv = setInterval(fetchRoute, 300000);
+    const iv = setInterval(fetchRoute, ROUTE_REFRESH_INTERVAL_MS);
     return () => clearInterval(iv);
   }, [rider, fetchRoute, phase, orderId]);
 
   const dest = useMemo(() => destinationForPhase(order, phase), [order, phase]);
+
+  useEffect(() => {
+    if (typeof onRouteStatsChange !== "function") return undefined;
+    onRouteStatsChange({
+      phase,
+      rider,
+      destination: dest,
+      routeDurationSeconds: Number(routeData?.duration) || null,
+      routeDistanceMeters:
+        Number(routeData?.distanceMeters ?? routeData?.distance) || null,
+    });
+    return undefined;
+  }, [onRouteStatsChange, phase, rider, dest, routeData]);
 
   const decodedPath = useMemo(() => {
     const encoded = routeData?.polyline;

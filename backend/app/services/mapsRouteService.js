@@ -2,11 +2,14 @@ import { Client } from "@googlemaps/google-maps-services-js";
 import polyline from "@mapbox/polyline";
 import { getRedisClient } from "../config/redis.js";
 import { writeRoutePolyline, getRoutePolyline } from "./firebaseService.js";
+import { distanceMeters } from "../utils/geoUtils.js";
 
 const client = new Client({});
 
 const ROUTE_CACHE_TTL_SEC = () =>
   parseInt(process.env.ROUTE_CACHE_TTL_SEC || "900", 10);
+const ROUTE_CACHE_MATCH_THRESHOLD_M = () =>
+  parseInt(process.env.ROUTE_CACHE_MATCH_THRESHOLD_METERS || "150", 10);
 
 function roundCoord(n) {
   return Math.round(n * 1e5) / 1e5;
@@ -75,6 +78,42 @@ function degradedPayload() {
   return { polyline: null, bounds: null, distanceMeters: null, duration: null, degraded: true };
 }
 
+function hasValidPoint(point) {
+  return (
+    point &&
+    typeof point.lat === "number" &&
+    typeof point.lng === "number" &&
+    Number.isFinite(point.lat) &&
+    Number.isFinite(point.lng)
+  );
+}
+
+function isRouteCacheCompatible(cached, origin, dest, phase, mode) {
+  if (!cached?.polyline) return false;
+  if ((cached.phase || "pickup") !== phase) return false;
+  if ((cached.mode || "driving") !== mode) return false;
+  if (!hasValidPoint(origin) || !hasValidPoint(dest)) return false;
+  if (!hasValidPoint(cached.origin) || !hasValidPoint(cached.destination)) {
+    return false;
+  }
+
+  const originDrift = distanceMeters(
+    origin.lat,
+    origin.lng,
+    cached.origin.lat,
+    cached.origin.lng,
+  );
+  const destDrift = distanceMeters(
+    dest.lat,
+    dest.lng,
+    cached.destination.lat,
+    cached.destination.lng,
+  );
+
+  const threshold = Math.max(25, ROUTE_CACHE_MATCH_THRESHOLD_M());
+  return originDrift <= threshold && destDrift <= threshold;
+}
+
 /**
  * Returns { polyline, bounds, distanceMeters, degraded } from Directions API with Redis + Firebase cache.
  * Requires GOOGLE_MAPS_API_KEY and Directions API enabled in Google Cloud (billing on).
@@ -99,7 +138,7 @@ export async function getCachedRoute(origin, dest, mode = "driving", orderId = n
           `[mapsRouteService] Firebase route phase mismatch for order ${orderId}: cached=${cachedPhase}, requested=${phase}`,
         );
       }
-      if (firebaseRoute && firebaseRoute.polyline && cachedPhase === phase) {
+      if (isRouteCacheCompatible(firebaseRoute, origin, dest, phase, mode)) {
         console.log(`[mapsRouteService] ✓ Firebase cache HIT for order ${orderId}`);
         return {
           polyline: firebaseRoute.polyline,
@@ -204,6 +243,9 @@ export async function getCachedRoute(origin, dest, mode = "driving", orderId = n
         await writeRoutePolyline(orderId, {
           polyline,
           phase,
+          origin,
+          destination: dest,
+          mode,
           bounds: route?.bounds || null,
           distance: distanceMeters,
           duration,

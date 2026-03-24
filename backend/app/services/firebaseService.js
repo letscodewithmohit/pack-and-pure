@@ -20,15 +20,16 @@ export const writeDeliveryLocation = async (deliveryId, orderId, snapshot) => {
       return { deliveryId, orderId, snapshot, skipped: true };
     }
 
-    // Filter out undefined values from snapshot
+    const timestamp = snapshot.lastUpdatedAt || new Date().toISOString();
     const cleanSnapshot = {
       lat: snapshot.lat,
       lng: snapshot.lng,
-      lastUpdatedAt: snapshot.lastUpdatedAt,
+      lastUpdatedAt: timestamp,
       deliveryId: snapshot.deliveryId,
+      orderId: snapshot.orderId ?? null,
+      source: snapshot.source || "gps",
     };
 
-    // Only add optional fields if they are defined
     if (snapshot.accuracy !== undefined && snapshot.accuracy !== null) {
       cleanSnapshot.accuracy = snapshot.accuracy;
     }
@@ -38,9 +39,6 @@ export const writeDeliveryLocation = async (deliveryId, orderId, snapshot) => {
     if (snapshot.speed !== undefined && snapshot.speed !== null) {
       cleanSnapshot.speed = snapshot.speed;
     }
-    if (snapshot.orderId !== undefined && snapshot.orderId !== null) {
-      cleanSnapshot.orderId = snapshot.orderId;
-    }
 
     const updates = {};
     updates[trackingPaths.deliveryCurrent(deliveryId)] = cleanSnapshot;
@@ -48,14 +46,28 @@ export const writeDeliveryLocation = async (deliveryId, orderId, snapshot) => {
       lat: snapshot.lat,
       lng: snapshot.lng,
       orderId: snapshot.orderId || null,
-      lastUpdatedAt: snapshot.lastUpdatedAt,
+      lastUpdatedAt: timestamp,
+      source: cleanSnapshot.source,
     };
 
     if (orderId && deliveryId) {
       updates[trackingPaths.deliveryLocation(orderId, deliveryId)] = {
         lat: snapshot.lat,
         lng: snapshot.lng,
-        timestamp: snapshot.lastUpdatedAt || new Date().toISOString(),
+        timestamp,
+        lastUpdatedAt: timestamp,
+        deliveryId,
+        orderId,
+        source: cleanSnapshot.source,
+        ...(snapshot.accuracy !== undefined && snapshot.accuracy !== null
+          ? { accuracy: snapshot.accuracy }
+          : {}),
+        ...(snapshot.heading !== undefined && snapshot.heading !== null
+          ? { heading: snapshot.heading }
+          : {}),
+        ...(snapshot.speed !== undefined && snapshot.speed !== null
+          ? { speed: snapshot.speed }
+          : {}),
       };
       updates[trackingPaths.orderRider(orderId)] = cleanSnapshot;
     }
@@ -93,6 +105,9 @@ export const writeRoutePolyline = async (orderId, routeData) => {
     const routeCache = {
       polyline: routeData.polyline,
       phase: routeData.phase || null,
+      origin: routeData.origin || null,
+      destination: routeData.destination || null,
+      mode: routeData.mode || "driving",
       distance: routeData.distance,
       duration: routeData.duration,
       bounds: routeData.bounds,

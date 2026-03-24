@@ -11,7 +11,12 @@ const STATUS_TO_STAGE = {
   delivered: "delivered",
 };
 
-const OrderProgressTracker = ({ order }) => {
+const OrderProgressTracker = ({
+  order,
+  estimatedArrivalText = "12:45 PM",
+  arrivingInText = "8 mins",
+  totalDistanceText = "—",
+}) => {
   const status = getLegacyStatusFromOrder(order);
   const currentStage = STATUS_TO_STAGE[status] || "confirmed";
 
@@ -160,7 +165,7 @@ const OrderProgressTracker = ({ order }) => {
       {/* ETA Display */}
       {status !== "delivered" && (
         <div className="mt-6 pt-5 border-t border-slate-100">
-          <div className="flex items-center justify-between bg-amber-50 rounded-2xl p-4">
+          <div className="flex items-center justify-between bg-amber-50 rounded-2xl p-4 gap-4">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 bg-amber-100 rounded-xl flex items-center justify-center">
                 <Clock size={20} className="text-amber-600" />
@@ -169,12 +174,17 @@ const OrderProgressTracker = ({ order }) => {
                 <p className="text-xs font-bold text-amber-700 uppercase tracking-wider">
                   Estimated Time
                 </p>
-                <p className="text-lg font-black text-amber-900">12:45 PM</p>
+                <p className="text-lg font-black text-amber-900">{estimatedArrivalText}</p>
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-xs text-amber-600 font-semibold">Arriving in</p>
-              <p className="text-2xl font-black text-amber-900">8 mins</p>
+            <div className="text-right flex flex-col items-end gap-1">
+              <div>
+                <p className="text-xs text-amber-600 font-semibold">Arriving in</p>
+                <p className="text-2xl font-black text-amber-900">{arrivingInText}</p>
+              </div>
+              <div className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-[11px] font-bold text-amber-700 ring-1 ring-amber-200">
+                Total distance: {totalDistanceText}
+              </div>
             </div>
           </div>
         </div>

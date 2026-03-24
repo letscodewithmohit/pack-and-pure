@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import InvoiceModal from "../components/order/InvoiceModal";
@@ -52,6 +52,50 @@ const hasValidLatLng = (location) =>
   Number.isFinite(location.lat) &&
   Number.isFinite(location.lng);
 
+const DEFAULT_CITY_SPEED_KMPH = 24;
+const ROUTE_REFRESH_THRESHOLD_M = 150;
+const ROUTE_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
+const toRadians = (value) => (value * Math.PI) / 180;
+
+const distanceMeters = (from, to) => {
+  if (!hasValidLatLng(from) || !hasValidLatLng(to)) return null;
+  const r = 6371000;
+  const dLat = toRadians(to.lat - from.lat);
+  const dLng = toRadians(to.lng - from.lng);
+  const lat1 = toRadians(from.lat);
+  const lat2 = toRadians(to.lat);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * r * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const formatArrivalTime = (arrivalMs) =>
+  new Date(arrivalMs).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+const formatArrivingIn = (minutes) => {
+  if (!Number.isFinite(minutes) || minutes < 0) return "Soon";
+  const rounded = Math.max(1, Math.round(minutes));
+  return `${rounded} min${rounded === 1 ? "" : "s"}`;
+};
+
+const formatDistance = (meters) => {
+  if (!Number.isFinite(meters) || meters <= 0) return "—";
+  if (meters < 1000) {
+    return `${Math.max(50, Math.round(meters / 10) * 10)} m`;
+  }
+  return `${(meters / 1000).toFixed(meters >= 10000 ? 1 : 2)} km`;
+};
+
+const estimateMinutesFromDistance = (meters) => {
+  if (!Number.isFinite(meters) || meters <= 0) return null;
+  return (meters * 60) / (DEFAULT_CITY_SPEED_KMPH * 1000);
+};
+
 const getTrackingRoutePhase = (order) => {
   if (!order) return "pickup";
 
@@ -86,7 +130,9 @@ const OrderDetailPage = () => {
   const [trail, setTrail] = useState([]);
   const [routePolyline, setRoutePolyline] = useState(null);
   const [handoffOtp, setHandoffOtp] = useState(null);
+  const [clockTick, setClockTick] = useState(Date.now());
   const routeRequestRef = useRef({ phase: null, startedAt: 0 });
+  const routeOriginRef = useRef(null);
 
   // Scroll to top on load
   useEffect(() => {
@@ -180,6 +226,11 @@ const OrderDetailPage = () => {
     };
   }, [orderId]);
 
+  useEffect(() => {
+    const iv = setInterval(() => setClockTick(Date.now()), 30000);
+    return () => clearInterval(iv);
+  }, []);
+
   const handleOpenInMaps = () => {
     const loc = order?.address?.location;
     const dest =
@@ -227,16 +278,87 @@ const OrderDetailPage = () => {
         : !!routePolyline?.polyline
       : routePolyline?.phase === routePhase;
   const activeRoutePolyline = routeMatchesPhase ? routePolyline : null;
+  const estimatedArrival = useMemo(() => {
+    if (!order) {
+      return {
+        arrivalTimeText: "--",
+        arrivingInText: "--",
+      };
+    }
+
+    if (status === "delivered") {
+      return {
+        arrivalTimeText: "Arrived",
+        arrivingInText: "Delivered",
+      };
+    }
+
+    const targetLocation =
+      routePhase === "delivery" ? order?.address?.location : sellerLocation;
+
+    let minutes = null;
+    const routeDurationSeconds = Number(activeRoutePolyline?.duration);
+    if (Number.isFinite(routeDurationSeconds) && routeDurationSeconds > 0) {
+      minutes = routeDurationSeconds / 60;
+    } else {
+      const routeDistanceMeters = Number(activeRoutePolyline?.distanceMeters);
+      minutes =
+        estimateMinutesFromDistance(routeDistanceMeters) ??
+        estimateMinutesFromDistance(distanceMeters(liveLocation, targetLocation));
+    }
+
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      minutes = status === "confirmed" ? 12 : 8;
+    }
+
+    const arrivalMs = clockTick + minutes * 60 * 1000;
+    const routeDistanceMeters = Number(
+      activeRoutePolyline?.distanceMeters ?? activeRoutePolyline?.distance,
+    );
+    return {
+      arrivalTimeText: formatArrivalTime(arrivalMs),
+      arrivingInText: formatArrivingIn(minutes),
+      totalDistanceText: formatDistance(
+        routeDistanceMeters ||
+          distanceMeters(liveLocation, targetLocation),
+      ),
+    };
+  }, [
+    activeRoutePolyline?.distanceMeters,
+    activeRoutePolyline?.duration,
+    liveLocation,
+    order,
+    routePhase,
+    sellerLocation,
+    status,
+    clockTick,
+  ]);
 
   useEffect(() => {
     if (!orderId || status === "delivered" || status === "cancelled") return;
     if (!hasValidLatLng(liveLocation)) return;
-    if (activeRoutePolyline?.polyline) return;
+
+    const currentOrigin = {
+      lat: liveLocation.lat,
+      lng: liveLocation.lng,
+    };
+    const originDrift =
+      routeOriginRef.current && hasValidLatLng(routeOriginRef.current)
+        ? distanceMeters(routeOriginRef.current, currentOrigin)
+        : null;
+    const routeIsFresh =
+      activeRoutePolyline?.polyline &&
+      originDrift !== null &&
+      originDrift < ROUTE_REFRESH_THRESHOLD_M &&
+      routePhase === activeRoutePolyline?.phase;
+
+    if (routeIsFresh) return;
 
     const now = Date.now();
     if (
       routeRequestRef.current.phase === routePhase &&
-      now - routeRequestRef.current.startedAt < 15000
+      now - routeRequestRef.current.startedAt < ROUTE_REFRESH_INTERVAL_MS &&
+      (originDrift === null || originDrift < ROUTE_REFRESH_THRESHOLD_M)
     ) {
       return;
     }
@@ -256,6 +378,7 @@ const OrderDetailPage = () => {
         const nextRoute = response.data?.result;
         if (nextRoute?.polyline) {
           setRoutePolyline(nextRoute);
+          routeOriginRef.current = currentOrigin;
         }
       })
       .catch(() => {});
@@ -388,7 +511,7 @@ const OrderDetailPage = () => {
           >
             <LiveTrackingMap
               status={order.workflowStatus || order.status}
-              eta={status === "delivered" ? "Arrived" : "8 mins"}
+              eta={estimatedArrival.arrivingInText}
               riderName={order.deliveryBoy?.name || "Delivery Partner"}
               riderLocation={liveLocation}
               sellerLocation={sellerLocation}
@@ -401,7 +524,12 @@ const OrderDetailPage = () => {
         )}
 
         {/* Order Progress Tracker - New Component */}
-        <OrderProgressTracker order={order} />
+        <OrderProgressTracker
+          order={order}
+          estimatedArrivalText={estimatedArrival.arrivalTimeText}
+          arrivingInText={estimatedArrival.arrivingInText}
+          totalDistanceText={estimatedArrival.totalDistanceText}
+        />
 
         {/* Proximity-based Delivery OTP Display */}
         <DeliveryOtpDisplay orderId={orderId} />
