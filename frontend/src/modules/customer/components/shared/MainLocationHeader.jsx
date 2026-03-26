@@ -13,7 +13,7 @@ import {
   buildSearchBarBackgroundColor,
   shiftHex,
 } from "../../utils/headerTheme";
-import LogoImage from "../../../../assets/Logo.png";
+import LogoImage from "../../../../assets/Logo.jpeg";
 import shoppingCartAnimation from "../../../../assets/lottie/shopping-cart.json";
 
 // MUI Icons
@@ -436,10 +436,20 @@ const MainLocationHeader = ({
                 overflow: "hidden",
               }}
               className="relative z-10">
-              <div className="mb-1">
-                <span className="inline-flex items-center rounded-full border border-black/10 bg-white/18 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-slate-900 backdrop-blur-sm">
-                  {appName}
-                </span>
+              <div className="mb-1 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => navigate("/")}
+                  className="flex items-center gap-2 border-0 bg-transparent p-0">
+                  <img
+                    src={logoUrl}
+                    alt={`${appName} Logo`}
+                    className="h-6 w-auto object-contain drop-shadow-[0_1px_6px_rgba(255,255,255,0.35)]"
+                  />
+                  <span className="inline-flex items-center rounded-full border border-black/10 bg-white/18 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-slate-900 backdrop-blur-sm">
+                    {appName}
+                  </span>
+                </button>
               </div>
               <div className="flex justify-between items-start">
                 <div className="flex flex-col">
