@@ -339,7 +339,7 @@ const MainLocationHeader = ({
                   <img
                     src={logoUrl}
                     alt={`${appName} Logo`}
-                    className="h-10 w-auto object-contain"
+                    className="h-14 w-auto object-contain"
                   />
                 </div>
               </div>
@@ -444,7 +444,7 @@ const MainLocationHeader = ({
                   <img
                     src={logoUrl}
                     alt={`${appName} Logo`}
-                    className="h-6 w-auto object-contain drop-shadow-[0_1px_6px_rgba(255,255,255,0.35)]"
+                    className="h-8 w-auto object-contain drop-shadow-[0_1px_6px_rgba(255,255,255,0.35)]"
                   />
                   <span className="inline-flex items-center rounded-full border border-black/10 bg-white/18 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-slate-900 backdrop-blur-sm">
                     {appName}
