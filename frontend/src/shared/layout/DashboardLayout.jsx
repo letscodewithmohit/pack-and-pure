@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import SellerOrdersContext from '@/modules/seller/context/SellerOrdersContext';
 import SellerEarningsContext, { defaultEarnings } from '@/modules/seller/context/SellerEarningsContext';
-import { getOrderSocket, onSellerOrderNew } from '@/core/services/orderSocket';
+import { getOrderSocket, onSellerOrderNew, onAdminOrderNew } from '@/core/services/orderSocket';
 
 const POLL_INTERVAL_MS = 15000;
 
@@ -120,6 +120,22 @@ const DashboardLayout = ({ children, navItems, title }) => {
         getOrderSocket(getToken);
         return onSellerOrderNew(getToken, () => {
             if (fetchOrdersRef.current) fetchOrdersRef.current();
+        });
+    }, [role]);
+
+    useEffect(() => {
+        if (role !== 'admin') return undefined;
+        const getToken = () => localStorage.getItem('auth_admin');
+        getOrderSocket(getToken);
+        return onAdminOrderNew(getToken, (payload) => {
+            const id = payload?.orderId || payload?.mongoOrderId || 'New';
+            const amount = Number(payload?.totalAmount || 0);
+            const hubStatus = payload?.hubStatus || 'pending';
+            toast.success(`New order #${id} received (₹${amount.toLocaleString('en-IN')})`, {
+                description: `Hub status: ${hubStatus}`,
+            });
+            const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+            audio.play().catch(() => {});
         });
     }, [role]);
 

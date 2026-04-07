@@ -132,6 +132,36 @@ const orderSchema = new mongoose.Schema(
       min: 1,
       max: 4,
     },
+    hubId: {
+      type: String,
+      default: "MAIN_HUB",
+      index: true,
+    },
+    hubFlowEnabled: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    hubStatus: {
+      type: String,
+      enum: [
+        "none",
+        "pending_inventory_check",
+        "inventory_reserved",
+        "procurement_required",
+        "ready_for_packing",
+      ],
+      default: "none",
+      index: true,
+    },
+    procurementRequired: {
+      type: Boolean,
+      default: false,
+    },
+    slaDeadlineAt: {
+      type: Date,
+      index: true,
+    },
     timeSlot: {
       type: String,
       default: "now",

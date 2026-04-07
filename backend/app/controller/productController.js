@@ -1,4 +1,5 @@
 import Product from "../models/product.js";
+import HubInventory from "../models/hubInventory.js";
 import { handleResponse } from "../utils/helper.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
 import { slugify } from "../utils/slugify.js";
@@ -69,6 +70,8 @@ export const getProducts = async (req, res) => {
     const requestedSellerIds = parseSellerIdFilters({ sellerId, sellerIds });
     const coords = parseCustomerCoordinates({ lat, lng });
     const shouldApplyLocationFilter = enforceRadius || coords.valid;
+    let finalSellerIdsForScope = [];
+    let hubProductIdsForScope = [];
     if (enforceRadius && !coords.valid) {
       return handleResponse(
         res,
@@ -77,27 +80,34 @@ export const getProducts = async (req, res) => {
       );
     }
     if (shouldApplyLocationFilter) {
-      const nearbySellerIds = await getNearbySellerIdsForCustomer(
-        coords.lat,
-        coords.lng,
-      );
+      const [nearbySellerIds, hubRows] = await Promise.all([
+        getNearbySellerIdsForCustomer(coords.lat, coords.lng),
+        HubInventory.find({
+          hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB",
+          availableQty: { $gt: 0 },
+        })
+          .select("productId availableQty")
+          .lean(),
+      ]);
 
-      if (!nearbySellerIds.length) {
-        return handleResponse(res, 200, "No sellers found in your area", {
-          items: [],
-          page: 1,
-          limit: 24,
-          total: 0,
-          totalPages: 1,
-        });
+      const nearbySet = new Set((nearbySellerIds || []).map(String));
+      finalSellerIdsForScope = requestedSellerIds.length
+        ? requestedSellerIds.filter((id) => nearbySet.has(String(id)))
+        : nearbySellerIds || [];
+
+      hubProductIdsForScope = (hubRows || [])
+        .map((row) => row?.productId && String(row.productId))
+        .filter(Boolean);
+
+      const visibilityOr = [];
+      if (finalSellerIdsForScope.length) {
+        visibilityOr.push({ sellerId: { $in: finalSellerIdsForScope } });
+      }
+      if (hubProductIdsForScope.length) {
+        visibilityOr.push({ _id: { $in: hubProductIdsForScope } });
       }
 
-      const nearbySet = new Set(nearbySellerIds.map(String));
-      const finalSellerIds = requestedSellerIds.length
-        ? requestedSellerIds.filter((id) => nearbySet.has(String(id)))
-        : nearbySellerIds;
-
-      if (!finalSellerIds.length) {
+      if (!visibilityOr.length) {
         return handleResponse(res, 200, "No products available in your area", {
           items: [],
           page: 1,
@@ -107,11 +117,13 @@ export const getProducts = async (req, res) => {
         });
       }
 
-      query.sellerId = { $in: finalSellerIds };
+      query.$or = visibilityOr;
     }
 
-    // Ensure we only show active products for public queries
-    if (!status && !req.user?.role) {
+    // Customer/user app should only see approved active products.
+    if (enforceRadius) {
+      query.status = "active";
+    } else if (!status && !req.user?.role) {
       query.status = "active";
     } else if (status) {
       query.status = status;
@@ -158,10 +170,36 @@ export const getProducts = async (req, res) => {
       .limit(limit)
       .lean();
 
+    const hubRowsForResult = await HubInventory.find({
+      productId: { $in: products.map((p) => p._id) },
+      hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB",
+    })
+      .select("productId availableQty")
+      .lean();
+    const hubQtyMap = new Map(
+      hubRowsForResult.map((r) => [String(r.productId), Number(r.availableQty || 0)]),
+    );
+    const sellerSet = new Set((finalSellerIdsForScope || []).map(String));
+
+    const productsWithSource = products.map((p) => {
+      const hubQty = Number(hubQtyMap.get(String(p._id)) || 0);
+      const sellerVisible = sellerSet.has(String(p.sellerId?._id || p.sellerId));
+      let fulfillmentSource = "seller";
+      if (hubQty > 0 && sellerVisible) fulfillmentSource = "hybrid";
+      else if (hubQty > 0) fulfillmentSource = "hub";
+
+      return {
+        ...p,
+        availableQtyHub: hubQty,
+        availableQtySeller: Number(p.stock || 0),
+        fulfillmentSource,
+      };
+    });
+
     const total = await Product.countDocuments(query);
 
     return handleResponse(res, 200, "Products fetched successfully", {
-      items: products,
+      items: productsWithSource,
       page,
       limit,
       total,
@@ -225,6 +263,8 @@ export const createProduct = async (req, res) => {
   try {
     const productData = { ...req.body };
     productData.sellerId = req.user.id;
+    // Seller-created products require admin approval before going live.
+    productData.status = "pending_approval";
 
     // Auto-generate slug
     if (!productData.slug || productData.slug.trim() === "") {
@@ -293,6 +333,12 @@ export const updateProduct = async (req, res) => {
 
     if (!product) {
       return handleResponse(res, 404, "Product not found or unauthorized");
+    }
+
+    // Sellers cannot self-publish updates; any seller-side change re-enters approval queue.
+    if (role !== "admin") {
+      delete productData.status;
+      productData.status = "pending_approval";
     }
 
     if (productData.name) {
@@ -440,6 +486,9 @@ export const getProductById = async (req, res) => {
     }
 
     if (enforceRadius) {
+      if (String(product.status || "") !== "active") {
+        return handleResponse(res, 404, "Product not available");
+      }
       const sellerIdForProduct = String(product.sellerId?._id || product.sellerId);
       if (!nearbySellerSet || !nearbySellerSet.has(sellerIdForProduct)) {
         return handleResponse(res, 404, "Product not available in your area");

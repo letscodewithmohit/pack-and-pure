@@ -24,6 +24,8 @@ export const adminApi = {
     getCategories: (params) => axiosInstance.get('/admin/categories', { params }),
     getCategoryTree: () => axiosInstance.get('/admin/categories?tree=true'),
     getSellers: (params) => axiosInstance.get('/admin/sellers', { params }),
+    createSeller: (data) => axiosInstance.post('/admin/sellers', data),
+    updateSeller: (id, data) => axiosInstance.put(`/admin/sellers/${id}`, data),
     createCategory: (formData) => axiosInstance.post('/admin/categories', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     }),
@@ -34,7 +36,7 @@ export const adminApi = {
     getParentUnits: () => axiosInstance.get('/admin/categories?flat=true'),
 
     // Product Management
-    getProducts: (params) => axiosInstance.get('/products', { params }),
+    getProducts: (params) => axiosInstance.get('/products/admin/list', { params }),
     createProduct: (formData) => axiosInstance.post('/products', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     }),
@@ -42,6 +44,27 @@ export const adminApi = {
         headers: { 'Content-Type': 'multipart/form-data' }
     }),
     deleteProduct: (id) => axiosInstance.delete(`/products/${id}`),
+    getHubInventory: (params) => axiosInstance.get('/admin/hub-inventory', { params }),
+    upsertHubInventory: (data) => axiosInstance.post('/admin/hub-inventory/upsert', data),
+    adjustHubInventoryStock: (id, delta) => axiosInstance.post(`/admin/hub-inventory/${id}/adjust-stock`, { delta }),
+    updateHubInventoryReorderLevel: (id, reorderLevel) =>
+        axiosInstance.put(`/admin/hub-inventory/${id}/reorder-level`, { reorderLevel }),
+    getPurchaseRequests: (params) => axiosInstance.get('/admin/purchase-requests', { params }),
+    updatePurchaseRequestStatus: (id, status, payload = {}) =>
+        axiosInstance.put(`/admin/purchase-requests/${id}/status`, { status, ...payload }),
+    assignPurchasePickupPartner: (id, data) =>
+        axiosInstance.put(`/admin/purchase-requests/${id}/assign-pickup`, data),
+    assignPurchaseVendor: (id, data) =>
+        axiosInstance.put(`/admin/purchase-requests/${id}/assign-vendor`, data),
+    receivePurchaseRequestAtHub: (id, data = {}) =>
+        axiosInstance.post(`/admin/purchase-requests/${id}/receive`, data),
+    verifyPurchaseRequestInward: (id, data = {}) =>
+        axiosInstance.post(`/admin/purchase-requests/${id}/verify`, data),
+    getPickupPartners: (params) => axiosInstance.get('/admin/pickup-partners', { params }),
+    createPickupPartner: (data) => axiosInstance.post('/admin/pickup-partners', data),
+    updatePickupPartner: (id, data) => axiosInstance.put(`/admin/pickup-partners/${id}`, data),
+    updatePickupPartnerStatus: (id, status) =>
+        axiosInstance.patch(`/admin/pickup-partners/${id}/status`, { status }),
     getOrders: (params) => axiosInstance.get('/orders/seller-orders', { params }),
     getOrderDetails: (orderId) => axiosInstance.get(`/orders/details/${orderId}`),
     updateOrderStatus: (orderId, data) => axiosInstance.put(`/orders/status/${orderId}`, data),

@@ -224,3 +224,12 @@ export function emitToCustomer(customerId, { event, payload }) {
   if (!s || !customerId) return;
   s.to(`customer:${customerId}`).emit(event, payload);
 }
+
+export function emitToAdminOrdersRoom({ event, payload }) {
+  const s = getIo();
+  if (!s || !event) return;
+  s.to("admin:orders").emit(event, {
+    ...(payload || {}),
+    at: new Date().toISOString(),
+  });
+}

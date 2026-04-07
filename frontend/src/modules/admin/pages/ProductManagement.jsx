@@ -279,7 +279,9 @@ const ProductManagement = () => {
         if (stock === 0) return <Badge variant="error" className="text-[10px] px-1.5 py-0">Out of Stock</Badge>;
         if (stock <= 10) return <Badge variant="warning" className="text-[10px] px-1.5 py-0">Low Stock</Badge>;
         if (status === 'active') return <Badge variant="success" className="text-[10px] px-1.5 py-0">Active</Badge>;
-        return <Badge variant="gray" className="text-[10px] px-1.5 py-0">Draft</Badge>;
+        if (status === 'pending_approval') return <Badge variant="warning" className="text-[10px] px-1.5 py-0">Pending Approval</Badge>;
+        if (status === 'rejected') return <Badge variant="error" className="text-[10px] px-1.5 py-0">Rejected</Badge>;
+        return <Badge variant="gray" className="text-[10px] px-1.5 py-0">Inactive</Badge>;
     };
 
     return (
@@ -348,20 +350,26 @@ const ProductManagement = () => {
                         </select>
                         <button
                             onClick={() => {
-                                const nextStatus = filterStatus === 'all' ? 'active' : filterStatus === 'active' ? 'inactive' : 'all';
+                                const statusCycle = ['all', 'pending_approval', 'active', 'inactive', 'rejected'];
+                                const idx = statusCycle.indexOf(filterStatus);
+                                const nextStatus = statusCycle[(idx + 1) % statusCycle.length];
                                 setFilterStatus(nextStatus);
                             }}
                             className={cn(
                                 "flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap",
+                                filterStatus === 'pending_approval' ? "bg-orange-500 text-white shadow-md shadow-orange-100" :
                                 filterStatus === 'active' ? "bg-emerald-500 text-white shadow-md shadow-emerald-100" :
                                     filterStatus === 'inactive' ? "bg-amber-500 text-white shadow-md shadow-amber-100" :
+                                        filterStatus === 'rejected' ? "bg-rose-500 text-white shadow-md shadow-rose-100" :
                                         "bg-white ring-1 ring-slate-200 text-slate-600 hover:bg-slate-50"
                             )}
                         >
                             <HiOutlineFunnel className="h-4 w-4" />
                             <span>
-                                {filterStatus === 'active' ? 'ONLY LIVE' :
+                                {filterStatus === 'pending_approval' ? 'PENDING APPROVAL' :
+                                    filterStatus === 'active' ? 'ONLY LIVE' :
                                     filterStatus === 'inactive' ? 'ONLY DRAFT' :
+                                        filterStatus === 'rejected' ? 'ONLY REJECTED' :
                                         'SHOW ALL'}
                             </span>
                         </button>
@@ -582,8 +590,10 @@ const ProductManagement = () => {
                                                 onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                                                 className="w-full bg-transparent border-none text-xs font-bold text-emerald-700 outline-none p-0 cursor-pointer"
                                             >
+                                                <option value="pending_approval">PENDING APPROVAL</option>
                                                 <option value="active">PUBLISHED</option>
-                                                <option value="inactive">DRAFT</option>
+                                                <option value="inactive">INACTIVE</option>
+                                                <option value="rejected">REJECTED</option>
                                             </select>
                                         </div>
                                         <div className="mt-3 p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex items-center justify-between">

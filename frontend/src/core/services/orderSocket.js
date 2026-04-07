@@ -93,6 +93,13 @@ export function onSellerOrderNew(getToken, handler) {
   return () => s.off("order:new", handler);
 }
 
+export function onAdminOrderNew(getToken, handler) {
+  const s = getOrderSocket(getToken);
+  if (!s || typeof handler !== "function") return () => {};
+  s.on("order:new:admin", handler);
+  return () => s.off("order:new:admin", handler);
+}
+
 export function onCustomerOtp(getToken, handler) {
   const s = getOrderSocket(getToken);
   if (!s || typeof handler !== "function") return () => {};

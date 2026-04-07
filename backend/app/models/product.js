@@ -82,8 +82,8 @@ const productSchema = new mongoose.Schema(
         },
         status: {
             type: String,
-            enum: ["active", "inactive"],
-            default: "active",
+            enum: ["pending_approval", "active", "inactive", "rejected"],
+            default: "pending_approval",
         },
         variants: [
             {

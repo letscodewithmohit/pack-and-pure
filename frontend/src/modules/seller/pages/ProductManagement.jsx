@@ -142,7 +142,7 @@ const ProductManagement = () => {
     category: "",
     header: "",
     subcategory: "",
-    status: "active",
+    status: "pending_approval",
     tags: "",
     weight: "",
     brand: "",
@@ -244,10 +244,10 @@ const ProductManagement = () => {
 
       if (editingItem) {
         await sellerApi.updateProduct(editingItem._id || editingItem.id, data);
-        toast.success("Product updated successfully");
+        toast.success("Product updated and sent for admin approval");
       } else {
         await sellerApi.createProduct(data);
-        toast.success("Product created successfully");
+        toast.success("Product created and sent for admin approval");
       }
 
       setIsProductModalOpen(false);
@@ -313,7 +313,7 @@ const ProductManagement = () => {
         header: item.headerId?._id || item.headerId || "",
         category: item.categoryId?._id || item.categoryId || "",
         subcategory: item.subcategoryId?._id || item.subcategoryId || "",
-        status: item.status || "active",
+        status: item.status || "pending_approval",
         tags: Array.isArray(item.tags) ? item.tags.join(", ") : item.tags || "",
         weight: item.weight || "",
         brand: item.brand || "",
@@ -343,7 +343,7 @@ const ProductManagement = () => {
         lowStockAlert: 5,
         category: "",
         header: "",
-        status: "active",
+        status: "pending_approval",
         tags: "",
         weight: "",
         brand: "",
@@ -863,8 +863,8 @@ const ProductManagement = () => {
                           setFormData({ ...formData, status: e.target.value })
                         }
                         className="w-full bg-transparent border-none text-xs font-bold text-emerald-700 outline-none p-0 cursor-pointer focus:ring-0">
-                        <option value="active">PUBLISHED</option>
-                        <option value="inactive">DRAFT</option>
+                        <option value="pending_approval">PENDING APPROVAL</option>
+                        <option value="inactive">INACTIVE</option>
                       </select>
                     </div>
                   </div>

@@ -249,7 +249,7 @@ const MainLocationHeader = ({
   const bgOpacity = useTransform(scrollY, [0, 160], [1, 0.98]);
 
   // Content animations
-  const contentHeight = useTransform(scrollY, [0, 160], ["64px", "0px"]);
+  const contentHeight = useTransform(scrollY, [0, 160], ["90px", "0px"]);
   const contentOpacity = useTransform(scrollY, [0, 160], [1, 0]);
   const navHeight = useTransform(scrollY, [0, 200], ["60px", "0px"]);
   const navOpacity = useTransform(scrollY, [0, 200], [1, 0]);
@@ -436,7 +436,7 @@ const MainLocationHeader = ({
                 overflow: "hidden",
               }}
               className="relative z-10">
-              <div className="mb-1 flex items-center gap-2">
+              <div className="mb-0.5 flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => navigate("/")}
@@ -444,11 +444,8 @@ const MainLocationHeader = ({
                   <img
                     src={logoUrl}
                     alt={`${appName} Logo`}
-                    className="h-8 w-auto object-contain drop-shadow-[0_1px_6px_rgba(255,255,255,0.35)]"
+                    className="h-14 w-auto object-contain drop-shadow-[0_1px_6px_rgba(255,255,255,0.35)]"
                   />
-                  <span className="inline-flex items-center rounded-full border border-black/10 bg-white/18 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-slate-900 backdrop-blur-sm">
-                    {appName}
-                  </span>
                 </button>
               </div>
               <div className="flex justify-between items-start">

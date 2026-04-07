@@ -5,8 +5,12 @@ import {
   LayoutDashboard,
   Tag,
   Box,
+  Boxes,
   Building2,
+  Store,
   Truck,
+  Bike,
+  FileClock,
   Wallet,
   Banknote,
   Receipt,
@@ -39,6 +43,19 @@ const CategoryHierarchy = React.lazy(
 );
 const ProductManagement = React.lazy(
   () => import("../pages/ProductManagement"),
+);
+const HubInventoryPage = React.lazy(() => import("../pages/HubInventoryPage"));
+const VendorManagementPage = React.lazy(
+  () => import("../pages/VendorManagementPage"),
+);
+const PurchaseRequestsPage = React.lazy(
+  () => import("../pages/PurchaseRequestsPage"),
+);
+const PickupPartnersPage = React.lazy(
+  () => import("../pages/PickupPartnersPage"),
+);
+const DeliveryPartnersPage = React.lazy(
+  () => import("../pages/DeliveryPartnersPage"),
 );
 const ActiveSellers = React.lazy(() => import("../pages/ActiveSellers"));
 const PendingSellers = React.lazy(() => import("../pages/PendingSellers"));
@@ -110,6 +127,31 @@ const navItems = [
     ],
   },
   { label: "Products", path: "/admin/products", icon: Box, color: "amber" },
+  {
+    label: "Hub Inventory",
+    path: "/admin/hub-inventory",
+    icon: Boxes,
+    color: "teal",
+  },
+  { label: "Vendors", path: "/admin/vendors", icon: Store, color: "lime" },
+  {
+    label: "Purchase Requests",
+    path: "/admin/purchase-requests",
+    icon: FileClock,
+    color: "orange",
+  },
+  {
+    label: "Pickup Partners",
+    path: "/admin/pickup-partners",
+    icon: Truck,
+    color: "emerald",
+  },
+  {
+    label: "Delivery Partners",
+    path: "/admin/delivery-partners",
+    icon: Bike,
+    color: "indigo",
+  },
   {
     label: "Marketing Tools",
     icon: Sparkles,
@@ -223,6 +265,11 @@ const AdminRoutes = () => {
         <Route path="/categories/sub" element={<SubCategories />} />
         <Route path="/categories/hierarchy" element={<CategoryHierarchy />} />
         <Route path="/products" element={<ProductManagement />} />
+        <Route path="/hub-inventory" element={<HubInventoryPage />} />
+        <Route path="/vendors" element={<VendorManagementPage />} />
+        <Route path="/purchase-requests" element={<PurchaseRequestsPage />} />
+        <Route path="/pickup-partners" element={<PickupPartnersPage />} />
+        <Route path="/delivery-partners" element={<DeliveryPartnersPage />} />
         <Route path="/sellers/active" element={<ActiveSellers />} />
         <Route path="/sellers/active/:id" element={<SellerDetail />} />
         <Route path="/support-tickets" element={<SupportTickets />} />

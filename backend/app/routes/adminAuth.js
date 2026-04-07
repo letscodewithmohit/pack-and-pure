@@ -27,6 +27,8 @@ import {
     getUsers,
     getUserById,
     getSellers,
+    createSellerByAdmin,
+    updateSellerByAdmin,
     getPlatformSettings,
     updatePlatformSettings
 } from "../controller/adminController.js";
@@ -81,6 +83,8 @@ router.put(
 router.get("/users", verifyToken, allowRoles("admin"), getUsers);
 router.get("/users/:id", verifyToken, allowRoles("admin"), getUserById);
 router.get("/sellers", verifyToken, allowRoles("admin"), getSellers);
+router.post("/sellers", verifyToken, allowRoles("admin"), createSellerByAdmin);
+router.put("/sellers/:id", verifyToken, allowRoles("admin"), updateSellerByAdmin);
 
 router.get(
     "/delivery-partners",

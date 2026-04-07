@@ -13,12 +13,15 @@ import upload from "../middleware/uploadMiddleware.js";
 
 const router = express.Router();
 
+// Admin protected listing (bypass customer lat/lng visibility constraint)
+router.get("/admin/list", verifyToken, allowRoles("admin"), getProducts);
+
 // Public routes
 router.get("/", getProducts);
-router.get("/:id", getProductById);
 
 // Seller protected routes
 router.get("/seller/me", verifyToken, allowRoles("seller"), getSellerProducts);
+router.get("/:id", getProductById);
 
 router.post(
     "/",

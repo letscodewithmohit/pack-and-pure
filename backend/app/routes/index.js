@@ -16,6 +16,9 @@ import experienceRoute from "./experienceRoutes.js";
 import offerRoute from "./offerRoutes.js";
 import couponRoute from "./couponRoutes.js";
 import settingsRoute from "./settingsRoutes.js";
+import hubInventoryRoute from "./hubInventoryRoutes.js";
+import purchaseRequestRoute from "./purchaseRequestRoutes.js";
+import pickupPartnerRoute from "./pickupPartnerRoutes.js";
 
 import express from "express";
 
@@ -29,6 +32,9 @@ const setupRoutes = (app) => {
     router.use("/admin", adminRoute);
     router.use("/seller", sellerRoute);
     router.use("/settings", settingsRoute);
+    router.use("/admin/hub-inventory", hubInventoryRoute);
+    router.use("/admin/purchase-requests", purchaseRequestRoute);
+    router.use("/admin/pickup-partners", pickupPartnerRoute);
     router.use("/categories", categoryRoute);
     router.use("/products", productRoute);
     router.use("/cart", cartRoute);

@@ -6,19 +6,25 @@ import StockHistory from "../models/stockHistory.js";
 import Notification from "../models/notification.js";
 import Seller from "../models/seller.js";
 import Delivery from "../models/delivery.js";
+import Admin from "../models/admin.js";
 import Setting from "../models/setting.js";
 import User from "../models/customer.js";
 import handleResponse from "../utils/helper.js";
 import getPagination from "../utils/pagination.js";
-import { WORKFLOW_STATUS, DEFAULT_SELLER_TIMEOUT_MS } from "../constants/orderWorkflow.js";
+import { WORKFLOW_STATUS } from "../constants/orderWorkflow.js";
 import {
-  afterPlaceOrderV2,
   sellerAcceptAtomic,
   sellerRejectAtomic,
   deliveryAcceptAtomic,
   customerCancelV2,
   resolveWorkflowStatus,
 } from "../services/orderWorkflowService.js";
+import {
+  planHubFulfillment,
+  reserveHubInventory,
+  createAutoPurchaseRequests,
+} from "../services/hubOrderOrchestrator.js";
+import { emitToAdminOrdersRoom } from "../services/orderSocketEmitter.js";
 import { distanceMeters } from "../utils/geoUtils.js";
 import {
   orderMatchQueryFromRouteParam,
@@ -54,14 +60,7 @@ export const placeOrder = async (req, res) => {
       }));
     }
 
-    // 3. Find seller from products (taking the first item's seller for simplicity)
-    const firstProduct = await Product.findById(orderItems[0].product);
-    const sellerId = firstProduct ? firstProduct.sellerId : null;
-    console.log(
-      `Order Placement [${orderId}] - Found Seller ID: ${sellerId} from product: ${firstProduct?.name}`,
-    );
-
-    // 3b. Normalize address.location so only valid numeric coords are stored
+    // 3. Normalize address.location so only valid numeric coords are stored
     let normalizedAddress = { ...address };
     if (address?.location) {
       const { lat, lng } = address.location;
@@ -75,87 +74,109 @@ export const placeOrder = async (req, res) => {
       }
     }
 
-    const sellerMs = DEFAULT_SELLER_TIMEOUT_MS();
-    const pendingUntil = new Date(Date.now() + sellerMs);
+    const defaultSlaHours = parseInt(process.env.HUB_SLA_HOURS || "3", 10);
+    const slaDeadlineAt = new Date(
+      Date.now() + Math.max(1, defaultSlaHours) * 60 * 60 * 1000,
+    );
 
-    // 4. Create the order (v2 workflow)
-    const newOrder = new Order({
+    let newOrder = null;
+    let hubMeta = null;
+
+    const hubPlan = await planHubFulfillment(orderItems);
+    const hubStatus = hubPlan.fullyAvailable
+      ? "inventory_reserved"
+      : "procurement_required";
+
+    newOrder = new Order({
       orderId,
       customer: customerId,
-      seller: sellerId,
+      seller: null,
       items: orderItems,
       address: normalizedAddress,
       payment,
       pricing,
       timeSlot: timeSlot || "now",
       status: "pending",
-      expiresAt: pendingUntil,
       workflowVersion: 2,
-      workflowStatus: WORKFLOW_STATUS.SELLER_PENDING,
-      sellerPendingExpiresAt: pendingUntil,
+      workflowStatus: WORKFLOW_STATUS.CREATED,
+      hubFlowEnabled: true,
+      hubId: hubPlan.hubId,
+      hubStatus,
+      procurementRequired: !hubPlan.fullyAvailable,
+      slaDeadlineAt,
     });
-
     await newOrder.save();
 
-    // 5. Create Transaction & Stock History (Simulating immediate sale for demo)
-    if (sellerId) {
-      // Create pending transaction
-      await Transaction.create({
-        user: sellerId,
-        userModel: "Seller",
-        order: newOrder._id,
-        type: "Order Payment",
-        amount: pricing.total,
-        status: "Pending",
-        reference: orderId,
-      });
+    // Reserve whatever hub stock is currently available (full or partial).
+    const reserved = await reserveHubInventory(hubPlan.allocations, hubPlan.hubId);
+    const finalPlan = reserved
+      ? hubPlan
+      : await planHubFulfillment(orderItems, hubPlan.hubId);
 
-      // Log stock history for each item
-      for (const item of orderItems) {
-        await StockHistory.create({
-          product: item.product,
-          seller: sellerId,
-          type: "Sale",
-          quantity: -item.quantity,
-          note: `Order #${orderId}`,
-          order: newOrder._id,
-        });
+    const purchaseRequests = finalPlan.shortages.length
+      ? await createAutoPurchaseRequests({
+          order: newOrder,
+          shortages: finalPlan.shortages,
+          hubId: finalPlan.hubId,
+        })
+      : [];
 
-        // Deduct actual stock
-        await Product.findByIdAndUpdate(item.product, {
-          $inc: { stock: -item.quantity },
-        });
+    newOrder.hubStatus =
+      finalPlan.shortages.length > 0 ? "procurement_required" : "inventory_reserved";
+    newOrder.procurementRequired = finalPlan.shortages.length > 0;
+    await newOrder.save();
+
+    hubMeta = {
+      mode: "hub_first",
+      hubStatus: newOrder.hubStatus,
+      purchaseRequestsCreated: purchaseRequests.length,
+      unassignedProcurementItems: finalPlan.shortages.filter((s) => !s.vendorId).length,
+    };
+
+    // Notify admin users about new order for hub-first operations.
+    try {
+      const admins = await Admin.find({}).select("_id").lean();
+      const adminIds = admins.map((a) => a?._id).filter(Boolean);
+      if (adminIds.length) {
+        await Notification.insertMany(
+          adminIds.map((adminId) => ({
+            recipient: adminId,
+            recipientModel: "Admin",
+            title: "New Order Received",
+            message: `Order #${orderId} received and routed to hub workflow.`,
+            type: "order",
+            data: {
+              orderId: newOrder.orderId,
+              mongoOrderId: newOrder._id,
+              hubStatus: newOrder.hubStatus,
+              procurementRequired: newOrder.procurementRequired,
+              totalAmount: pricing?.total ?? 0,
+            },
+          })),
+          { ordered: false },
+        );
       }
-
-      // Create notification for seller
-      const sellerNotif = await Notification.create({
-        recipient: sellerId,
-        recipientModel: "Seller",
-        title: "New Order Received!",
-        message: `You have received a new order #${orderId} for ₹${pricing.total}.`,
-        type: "order",
-        data: { orderId: newOrder.orderId, mongoOrderId: newOrder._id },
+      emitToAdminOrdersRoom({
+        event: "order:new:admin",
+        payload: {
+          orderId: newOrder.orderId,
+          mongoOrderId: newOrder._id,
+          hubStatus: newOrder.hubStatus,
+          procurementRequired: newOrder.procurementRequired,
+          totalAmount: pricing?.total ?? 0,
+        },
       });
-      console.log(
-        `Order Placement [${orderId}] - Created Notification ID: ${sellerNotif._id} for Seller: ${sellerId}`,
-      );
-    } else {
-      console.warn(
-        `Order Placement [${orderId}] - WARNING: No Seller ID found, skipping notification.`,
-      );
+    } catch (notifyErr) {
+      console.warn("[placeOrder] admin notify failed:", notifyErr.message);
     }
 
     // 6. Clear the customer's cart after order is placed
     await Cart.findOneAndUpdate({ customerId }, { items: [] });
 
-    // Do not await: scheduling Bull jobs talks to Redis and can block indefinitely if Redis
-    // is down or unreachable — the client would never get 201 and checkout stays on "Processing".
-    // Seller timeout is still enforced by orderAutoCancelJob + processSellerTimeoutJob fallback.
-    void afterPlaceOrderV2(newOrder).catch((e) => {
-      console.warn("[placeOrder] afterPlaceOrderV2:", e.message);
+    return handleResponse(res, 201, "Order placed successfully", {
+      ...newOrder.toObject(),
+      hubMeta,
     });
-
-    return handleResponse(res, 201, "Order placed successfully", newOrder);
   } catch (error) {
     console.error("Place Order Error:", error);
     return handleResponse(res, 500, error.message);
@@ -1464,3 +1485,4 @@ export const skipOrder = async (req, res) => {
     return handleResponse(res, 500, error.message);
   }
 };
+

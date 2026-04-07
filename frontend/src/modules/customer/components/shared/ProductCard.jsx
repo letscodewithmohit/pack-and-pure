@@ -221,6 +221,20 @@ const ProductCard = React.memo(
               )}>
               {product.weight || "1 unit"}
             </div>
+            {product.fulfillmentSource ? (
+              <div
+                className={cn(
+                  "font-bold rounded px-1.5 py-0.2 tracking-wide uppercase",
+                  compact ? "text-[8px]" : "text-[9px]",
+                  product.fulfillmentSource === "hub"
+                    ? "bg-emerald-50 text-emerald-700"
+                    : product.fulfillmentSource === "hybrid"
+                      ? "bg-indigo-50 text-indigo-700"
+                      : "bg-slate-100 text-slate-600",
+                )}>
+                {product.fulfillmentSource}
+              </div>
+            ) : null}
           </div>
 
           <div className={cn(compact ? "h-9" : "h-9")}>

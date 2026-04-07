@@ -1223,11 +1223,158 @@ export const getUserById = async (req, res) => {
 export const getSellers = async (req, res) => {
   try {
     const sellers = await Seller.find({})
-      .select("_id shopName name email phone")
+      .select(
+        "_id shopName name email phone isActive isVerified serviceRadius location",
+      )
       .sort({ shopName: 1 })
       .lean();
     return handleResponse(res, 200, "Sellers fetched", sellers);
   } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+/* ===============================
+   CREATE SELLER (Admin)
+================================ */
+export const createSellerByAdmin = async (req, res) => {
+  try {
+    const {
+      name,
+      shopName,
+      email,
+      phone,
+      password,
+      lat,
+      lng,
+      radius,
+      isVerified,
+      isActive,
+    } = req.body;
+
+    if (!name || !shopName || !email || !phone || !password) {
+      return handleResponse(
+        res,
+        400,
+        "name, shopName, email, phone and password are required",
+      );
+    }
+
+    const existing = await Seller.findOne({ $or: [{ email }, { phone }] }).lean();
+    if (existing) {
+      return handleResponse(
+        res,
+        400,
+        "Seller with this email or phone already exists",
+      );
+    }
+
+    const sellerData = {
+      name: String(name).trim(),
+      shopName: String(shopName).trim(),
+      email: String(email).trim().toLowerCase(),
+      phone: String(phone).trim(),
+      password: String(password),
+      isVerified: typeof isVerified === "boolean" ? isVerified : true,
+      isActive: typeof isActive === "boolean" ? isActive : true,
+    };
+
+    if (lat !== undefined && lng !== undefined) {
+      const parsedLat = Number(lat);
+      const parsedLng = Number(lng);
+      if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90) {
+        return handleResponse(res, 400, "Invalid latitude");
+      }
+      if (!Number.isFinite(parsedLng) || parsedLng < -180 || parsedLng > 180) {
+        return handleResponse(res, 400, "Invalid longitude");
+      }
+      sellerData.location = {
+        type: "Point",
+        coordinates: [parsedLng, parsedLat],
+      };
+    }
+
+    if (radius !== undefined) {
+      const parsedRadius = Number(radius);
+      if (!Number.isFinite(parsedRadius) || parsedRadius < 1 || parsedRadius > 100) {
+        return handleResponse(res, 400, "Radius must be between 1 and 100 km");
+      }
+      sellerData.serviceRadius = parsedRadius;
+    }
+
+    const seller = await Seller.create(sellerData);
+    return handleResponse(res, 201, "Seller created successfully", seller);
+  } catch (error) {
+    if (error?.code === 11000) {
+      return handleResponse(res, 400, "Email or phone already in use");
+    }
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+/* ===============================
+   UPDATE SELLER (Admin)
+================================ */
+export const updateSellerByAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      shopName,
+      email,
+      phone,
+      password,
+      lat,
+      lng,
+      radius,
+      isVerified,
+      isActive,
+    } = req.body;
+
+    const seller = await Seller.findById(id);
+    if (!seller) {
+      return handleResponse(res, 404, "Seller not found");
+    }
+
+    if (name !== undefined) seller.name = String(name).trim();
+    if (shopName !== undefined) seller.shopName = String(shopName).trim();
+    if (email !== undefined) seller.email = String(email).trim().toLowerCase();
+    if (phone !== undefined) seller.phone = String(phone).trim();
+    if (password !== undefined && String(password).trim()) {
+      seller.password = String(password);
+    }
+    if (typeof isVerified === "boolean") seller.isVerified = isVerified;
+    if (typeof isActive === "boolean") seller.isActive = isActive;
+
+    if (lat !== undefined && lng !== undefined) {
+      const parsedLat = Number(lat);
+      const parsedLng = Number(lng);
+      if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90) {
+        return handleResponse(res, 400, "Invalid latitude");
+      }
+      if (!Number.isFinite(parsedLng) || parsedLng < -180 || parsedLng > 180) {
+        return handleResponse(res, 400, "Invalid longitude");
+      }
+      seller.location = {
+        type: "Point",
+        coordinates: [parsedLng, parsedLat],
+      };
+    }
+
+    if (radius !== undefined) {
+      const parsedRadius = Number(radius);
+      if (!Number.isFinite(parsedRadius) || parsedRadius < 1 || parsedRadius > 100) {
+        return handleResponse(res, 400, "Radius must be between 1 and 100 km");
+      }
+      seller.serviceRadius = parsedRadius;
+    }
+
+    const updated = await seller.save();
+    return handleResponse(res, 200, "Seller updated successfully", updated);
+  } catch (error) {
+    if (error?.code === 11000) {
+      return handleResponse(res, 400, "Email or phone already in use");
+    }
     return handleResponse(res, 500, error.message);
   }
 };
