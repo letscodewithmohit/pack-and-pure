@@ -16,13 +16,13 @@ const generateToken = (customer) =>
 ================================ */
 export const signupCustomer = async (req, res) => {
     try {
-        const { name, phone } = req.body;
+        const { name, phone, businessName, contactPerson, deliveryAddress } = req.body;
 
-        if (!name || !phone) {
+        if (!phone) {
             return handleResponse(
                 res,
                 400,
-                "Name and phone number are required"
+                "Phone number is required"
             );
         }
 
@@ -40,12 +40,33 @@ export const signupCustomer = async (req, res) => {
 
         if (!customer) {
             customer = await Customer.create({
-                name,
+                name: name || contactPerson || "",
                 phone,
+                businessName: businessName || "",
+                contactPerson: contactPerson || name || "",
+                addresses: deliveryAddress
+                    ? [
+                        {
+                            label: "work",
+                            fullAddress: String(deliveryAddress),
+                        },
+                    ]
+                    : [],
                 otp,
                 otpExpiry: Date.now() + 5 * 60 * 1000,
             });
         } else {
+            if (name) customer.name = name;
+            if (businessName) customer.businessName = businessName;
+            if (contactPerson) customer.contactPerson = contactPerson;
+            if (deliveryAddress) {
+                customer.addresses = [
+                    {
+                        label: "work",
+                        fullAddress: String(deliveryAddress),
+                    },
+                ];
+            }
             customer.otp = otp;
             customer.otpExpiry = Date.now() + 5 * 60 * 1000;
             await customer.save();
@@ -188,7 +209,7 @@ export const getCustomerProfile = async (req, res) => {
 ================================ */
 export const updateCustomerProfile = async (req, res) => {
     try {
-        const { name, email, addresses } = req.body;
+        const { name, email, addresses, businessName, contactPerson } = req.body;
 
         const customer = await Customer.findById(req.user.id);
         if (!customer) {
@@ -197,6 +218,8 @@ export const updateCustomerProfile = async (req, res) => {
 
         if (name) customer.name = name;
         if (email) customer.email = email;
+        if (businessName !== undefined) customer.businessName = businessName;
+        if (contactPerson !== undefined) customer.contactPerson = contactPerson;
         if (addresses) customer.addresses = addresses;
 
         await customer.save();

@@ -38,6 +38,15 @@ const pickupPartnerSchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+    otp: {
+      type: String,
+      select: false,
+    },
+    otpExpiry: {
+      type: Date,
+      select: false,
+    },
+    lastLogin: Date,
   },
   { timestamps: true },
 );
@@ -46,4 +55,3 @@ pickupPartnerSchema.index({ phone: 1 }, { unique: true });
 pickupPartnerSchema.index({ hubId: 1, status: 1 });
 
 export default mongoose.model("PickupPartner", pickupPartnerSchema);
-

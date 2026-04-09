@@ -27,10 +27,12 @@ const statusToLabel = (value) => {
     vendor_confirmed: "Vendor Confirmed",
     pickup_assigned: "Assigned",
     picked: "In Transit",
+    hub_delivered: "At Hub Gate",
     received_at_hub: "Received at Hub",
     verified: "Verified",
     closed: "Closed",
     cancelled: "Cancelled",
+    exception: "Exception",
   };
   return map[value] || value;
 };
@@ -90,24 +92,38 @@ const PurchaseRequestsPage = () => {
   }, []);
 
   const openAssign = (row) => {
+    const firstPartnerId =
+      pickupPartners.length > 0 ? String(pickupPartners[0]?._id || "") : "";
     setCurrentRow(row);
-    setAssignForm({ pickupPartnerId: "" });
+    setAssignForm({ pickupPartnerId: firstPartnerId });
     setAssignOpen(true);
   };
 
   const submitAssign = async () => {
     if (!currentRow) return;
     const pickupPartnerId = String(assignForm.pickupPartnerId || "").trim();
-    if (!pickupPartnerId) return;
+    if (!pickupPartnerId) {
+      setInfoMessage("Pickup partner select karo ya pehle Pickup Partner add karo.");
+      setInfoOpen(true);
+      return;
+    }
 
-    await adminApi.assignPurchasePickupPartner(currentRow._id, {
-      pickupPartnerId,
-    });
+    try {
+      await adminApi.assignPurchasePickupPartner(currentRow._id, {
+        pickupPartnerId,
+      });
 
-    setAssignOpen(false);
-    setInfoMessage(`Pickup partner assigned successfully.`);
-    setInfoOpen(true);
-    await fetchRows();
+      setAssignOpen(false);
+      setInfoMessage(`Pickup partner assigned successfully.`);
+      setInfoOpen(true);
+      await fetchRows();
+    } catch (error) {
+      const msg =
+        error?.response?.data?.message ||
+        "Assign pickup failed. Please retry.";
+      setInfoMessage(msg);
+      setInfoOpen(true);
+    }
   };
 
   const openCancel = (row) => {

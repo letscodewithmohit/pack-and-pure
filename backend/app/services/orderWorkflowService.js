@@ -22,6 +22,7 @@ import {
   emitOrderStatusUpdate,
   emitToSeller,
   emitDeliveryBroadcastForSeller,
+  emitDeliveryBroadcast,
   emitToCustomer,
   retractDeliveryBroadcastForOrder,
 } from "./orderSocketEmitter.js";
@@ -44,6 +45,8 @@ function deliveryBroadcastPayloadFromOrder(order, extra = {}) {
       ? order.seller
       : null;
   const pickup = seller?.shopName || "Seller";
+  const hubPickup = order?.hubFlowEnabled ? getHubPickupPoint(order) : null;
+  const pickupName = hubPickup?.label || pickup;
   const drop =
     typeof order.address?.address === "string" && order.address.address.trim()
       ? order.address.address.trim()
@@ -56,7 +59,7 @@ function deliveryBroadcastPayloadFromOrder(order, extra = {}) {
     sellerId: sid != null ? String(sid) : undefined,
     radiusMeters: meta.radiusMeters ?? INITIAL_DELIVERY_RADIUS_M(),
     preview: {
-      pickup,
+      pickup: pickupName,
       drop,
       total: order.pricing?.total ?? 0,
     },
@@ -70,6 +73,41 @@ const OTP_RADIUS_M = () =>
   parseInt(process.env.DELIVERY_OTP_RADIUS_METERS || "150", 10);
 const OTP_EXPIRY_MS = () =>
   parseInt(process.env.DELIVERY_OTP_EXPIRY_MS || "300000", 10);
+
+function parseHubCoordinate(...keys) {
+  for (const key of keys) {
+    const raw = process.env[key];
+    const value = Number(raw);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function getHubPickupPoint(order) {
+  const lat = parseHubCoordinate("HUB_LOCATION_LAT", "HUB_LAT", "DEFAULT_HUB_LAT");
+  const lng = parseHubCoordinate("HUB_LOCATION_LNG", "HUB_LNG", "DEFAULT_HUB_LNG");
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return {
+    lat,
+    lng,
+    label: order?.hubId ? `Hub ${order.hubId}` : "Hub",
+  };
+}
+
+async function getOrderPickupPoint(order) {
+  if (order?.hubFlowEnabled) {
+    return getHubPickupPoint(order);
+  }
+  const seller = await Seller.findById(order?.seller).select("shopName location").lean();
+  const coords = seller?.location?.coordinates;
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  const [lng, lat] = coords;
+  return {
+    lat,
+    lng,
+    label: seller?.shopName || "Seller",
+  };
+}
 
 export function resolveWorkflowStatus(order) {
   if (order.workflowVersion >= 2 && order.workflowStatus) {
@@ -325,6 +363,84 @@ export async function sellerRejectAtomic(sellerId, orderId) {
   return order;
 }
 
+/**
+ * Hub workflow dispatch bridge:
+ * CREATED/SELLER_ACCEPTED -> DELIVERY_SEARCH without seller acceptance dependency.
+ */
+export async function startHubDeliverySearchAtomic(orderId) {
+  orderId = await requireCanonicalOrderId(orderId);
+  const now = new Date();
+  const deliveryMs = DEFAULT_DELIVERY_TIMEOUT_MS();
+
+  const updated = await Order.findOneAndUpdate(
+    {
+      orderId,
+      workflowVersion: { $gte: 2 },
+      hubFlowEnabled: true,
+      deliveryBoy: null,
+      workflowStatus: {
+        $in: [WORKFLOW_STATUS.CREATED, WORKFLOW_STATUS.SELLER_ACCEPTED],
+      },
+    },
+    {
+      $set: {
+        workflowStatus: WORKFLOW_STATUS.DELIVERY_SEARCH,
+        status: legacyStatusFromWorkflow(WORKFLOW_STATUS.DELIVERY_SEARCH),
+        sellerAcceptedAt: now,
+        deliverySearchExpiresAt: new Date(now.getTime() + deliveryMs),
+        deliverySearchMeta: {
+          radiusMeters: INITIAL_DELIVERY_RADIUS_M(),
+          attempt: 1,
+          lastBroadcastAt: now,
+        },
+      },
+      $unset: { expiresAt: 1 },
+    },
+    { new: true },
+  )
+    .populate("customer", "name phone")
+    .populate("seller", "shopName address name location serviceRadius");
+
+  if (!updated) {
+    const err = new Error("Order not ready for delivery dispatch");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  await scheduleDeliveryTimeoutJob(orderId, 1);
+
+  await DeliveryAssignment.create({
+    orderMongoId: updated._id,
+    orderId: updated.orderId,
+    status: "broadcasting",
+    radiusMeters: INITIAL_DELIVERY_RADIUS_M(),
+    attempt: 1,
+    expiresAt: updated.deliverySearchExpiresAt,
+  });
+
+  emitOrderStatusUpdate(
+    updated.orderId,
+    {
+      workflowStatus: WORKFLOW_STATUS.DELIVERY_SEARCH,
+      deliverySearchExpiresAt: updated.deliverySearchExpiresAt,
+    },
+    updated.customer?._id || updated.customer,
+  );
+
+  if (updated.seller) {
+    await emitDeliveryBroadcastForSeller(
+      updated.seller,
+      deliveryBroadcastPayloadFromOrder(updated),
+    );
+  } else {
+    emitDeliveryBroadcast(
+      deliveryBroadcastPayloadFromOrder(updated, { hubFlow: true }),
+    );
+  }
+
+  return updated;
+}
+
 function toDeliveryObjectId(deliveryId) {
   if (deliveryId == null) return null;
   try {
@@ -441,14 +557,16 @@ export async function deliveryAcceptAtomic(deliveryId, orderId, idempotencyKey) 
     }
   }
 
-  await Notification.create({
-    recipient: updated.seller,
-    recipientModel: "Seller",
-    title: "Delivery Partner Assigned",
-    message: `Delivery partner assigned to order #${orderId}.`,
-    type: "order",
-    data: { orderId: updated.orderId, mongoOrderId: updated._id },
-  });
+  if (updated.seller) {
+    await Notification.create({
+      recipient: updated.seller,
+      recipientModel: "Seller",
+      title: "Delivery Partner Assigned",
+      message: `Delivery partner assigned to order #${orderId}.`,
+      type: "order",
+      data: { orderId: updated.orderId, mongoOrderId: updated._id },
+    });
+  }
 
   await retractDeliveryBroadcastForOrder(updated.orderId, deliveryOid);
 
@@ -670,19 +788,21 @@ export async function markArrivedAtStoreAtomic(deliveryId, orderId, lat, lng) {
     throw err;
   }
 
-  const seller = await Seller.findById(order.seller).select("location").lean();
-  const coords = seller?.location?.coordinates;
-  if (!Array.isArray(coords) || coords.length < 2) {
-    const err = new Error("Seller location not configured");
-    err.statusCode = 400;
-    throw err;
-  }
-  const [slng, slat] = coords;
-  const d = distanceMeters(lat, lng, slat, slng);
-  if (d > PICKUP_RADIUS_M()) {
-    const err = new Error(`Too far from store (>${PICKUP_RADIUS_M()}m)`);
-    err.statusCode = 400;
-    throw err;
+  const pickupPoint = await getOrderPickupPoint(order);
+  if (!pickupPoint) {
+    if (!order.hubFlowEnabled) {
+      const err = new Error("Seller location not configured");
+      err.statusCode = 400;
+      throw err;
+    }
+    // Hub-mode fallback: when hub coordinates are not configured yet, do not block progress.
+  } else {
+    const d = distanceMeters(lat, lng, pickupPoint.lat, pickupPoint.lng);
+    if (d > PICKUP_RADIUS_M()) {
+      const err = new Error(`Too far from pickup point (>${PICKUP_RADIUS_M()}m)`);
+      err.statusCode = 400;
+      throw err;
+    }
   }
 
   const now = new Date();
@@ -746,19 +866,20 @@ export async function confirmPickupAtomic(deliveryId, orderId, lat, lng) {
     throw err;
   }
 
-  const seller = await Seller.findById(order.seller).select("location").lean();
-  const coords = seller?.location?.coordinates;
-  if (!Array.isArray(coords) || coords.length < 2) {
-    const err = new Error("Seller location not configured");
-    err.statusCode = 400;
-    throw err;
-  }
-  const [slng, slat] = coords;
-  const d = distanceMeters(lat, lng, slat, slng);
-  if (d > PICKUP_RADIUS_M()) {
-    const err = new Error(`Too far from store (>${PICKUP_RADIUS_M()}m)`);
-    err.statusCode = 400;
-    throw err;
+  const pickupPoint = await getOrderPickupPoint(order);
+  if (!pickupPoint) {
+    if (!order.hubFlowEnabled) {
+      const err = new Error("Seller location not configured");
+      err.statusCode = 400;
+      throw err;
+    }
+  } else {
+    const d = distanceMeters(lat, lng, pickupPoint.lat, pickupPoint.lng);
+    if (d > PICKUP_RADIUS_M()) {
+      const err = new Error(`Too far from pickup point (>${PICKUP_RADIUS_M()}m)`);
+      err.statusCode = 400;
+      throw err;
+    }
   }
 
   const now = new Date();

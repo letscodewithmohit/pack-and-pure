@@ -6,6 +6,8 @@ export const adminApi = {
     getStats: () => axiosInstance.get('/admin/stats'),
     getUsers: (params) => axiosInstance.get('/admin/users', { params }),
     getUserById: (id) => axiosInstance.get(`/admin/users/${id}`),
+    getCodCustomers: (params) => axiosInstance.get('/admin/users-cod', { params }),
+    updateUserCodPolicy: (id, data) => axiosInstance.patch(`/admin/users/${id}/cod-policy`, data),
     approveSeller: (id) => axiosInstance.post(`/admin/approve-seller/${id}`),
     getAdminWalletData: (params) => axiosInstance.get('/admin/wallet-data', { params }),
     getReports: () => axiosInstance.get('/admin/reports'),
@@ -50,6 +52,8 @@ export const adminApi = {
     updateHubInventoryReorderLevel: (id, reorderLevel) =>
         axiosInstance.put(`/admin/hub-inventory/${id}/reorder-level`, { reorderLevel }),
     getPurchaseRequests: (params) => axiosInstance.get('/admin/purchase-requests', { params }),
+    createManualPurchaseRequest: (data) =>
+        axiosInstance.post('/admin/purchase-requests', data),
     updatePurchaseRequestStatus: (id, status, payload = {}) =>
         axiosInstance.put(`/admin/purchase-requests/${id}/status`, { status, ...payload }),
     assignPurchasePickupPartner: (id, data) =>

@@ -6,6 +6,7 @@ import { Server } from "socket.io"
 import connectDB from "./app/dbConfig/dbConfig.js"
 import setupRoutes from "./app/routes/index.js";
 import startOrderAutoCancelJob from "./app/jobs/orderAutoCancelJob.js";
+import startSlaMonitorJob from "./app/jobs/slaMonitorJob.js";
 import cors from "cors"
 import { initSocket, getIO } from "./app/socket/socketManager.js"
 import { registerOrderSocketGetter } from "./app/services/orderSocketEmitter.js"
@@ -101,6 +102,7 @@ app.get('/', (req, res) => {
 // Connect to Database, then start seller-timeout fallback (interval) for v2 + legacy
 connectDB().then(() => {
   startOrderAutoCancelJob();
+  startSlaMonitorJob();
 });
 
 // Setup Routes

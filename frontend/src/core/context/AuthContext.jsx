@@ -8,7 +8,8 @@ const ROLE_STORAGE_KEYS = {
     customer: 'auth_customer',
     seller: 'auth_seller',
     admin: 'auth_admin',
-    delivery: 'auth_delivery'
+    delivery: 'auth_delivery',
+    pickup_partner: 'auth_pickup_partner',
 };
 
 export const AuthProvider = ({ children }) => {
@@ -18,7 +19,13 @@ export const AuthProvider = ({ children }) => {
         if (path.startsWith('/seller')) return 'seller';
         if (path.startsWith('/admin')) return 'admin';
         if (path.startsWith('/delivery')) return 'delivery';
+        if (path.startsWith('/pickup')) return 'pickup_partner';
         return 'customer';
+    };
+
+    const getProfileEndpointByRole = (role) => {
+        if (role === 'pickup_partner') return '/pickup-partner/my/profile';
+        return `/${role}/profile`;
     };
 
     const getSafeToken = (key) => {
@@ -35,6 +42,7 @@ export const AuthProvider = ({ children }) => {
         seller: getSafeToken('seller'),
         admin: getSafeToken('admin'),
         delivery: getSafeToken('delivery'),
+        pickup_partner: getSafeToken('pickup_partner'),
     });
 
     const currentRole = getCurrentRoleFromUrl();
@@ -48,7 +56,7 @@ export const AuthProvider = ({ children }) => {
             if (token) {
                 try {
                     // Use deduplicated fetch to avoid multiple simultaneous profile calls
-                    const endpoint = `/${currentRole}/profile`;
+                    const endpoint = getProfileEndpointByRole(currentRole);
                     const response = await getWithDedupe(endpoint, {}, { ttl: 5000 });
                     setUser(response.data.result);
                 } catch (error) {
@@ -93,6 +101,7 @@ export const AuthProvider = ({ children }) => {
             seller: null,
             admin: null,
             delivery: null,
+            pickup_partner: null,
         });
 
         // Clear the current user profile from memory
@@ -104,13 +113,14 @@ export const AuthProvider = ({ children }) => {
         if (path.startsWith('/admin')) window.location.href = '/admin/auth';
         else if (path.startsWith('/seller')) window.location.href = '/seller/auth';
         else if (path.startsWith('/delivery')) window.location.href = '/delivery/auth';
+        else if (path.startsWith('/pickup')) window.location.href = '/pickup/auth';
         else window.location.href = '/login';
     };
 
     const refreshUser = async () => {
         if (token) {
             try {
-                const endpoint = `/${currentRole}/profile`;
+                const endpoint = getProfileEndpointByRole(currentRole);
                 const response = await axiosInstance.get(endpoint);
                 setUser(response.data.result);
                 return response.data.result;

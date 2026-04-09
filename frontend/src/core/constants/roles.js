@@ -3,4 +3,5 @@ export const UserRole = {
     SELLER: 'seller',
     ADMIN: 'admin',
     DELIVERY: 'delivery',
+    PICKUP_PARTNER: 'pickup_partner',
 };

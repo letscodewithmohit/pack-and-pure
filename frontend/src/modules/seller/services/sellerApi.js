@@ -44,4 +44,10 @@ export const sellerApi = {
     approveReturn: (orderId, data) => axiosInstance.put(`/orders/returns/${orderId}/approve`, data),
     rejectReturn: (orderId, data) => axiosInstance.put(`/orders/returns/${orderId}/reject`, data),
     assignReturnDelivery: (orderId, data) => axiosInstance.put(`/orders/returns/${orderId}/assign-delivery`, data),
+
+    // Procurement requests (seller-side SOP flow)
+    getPurchaseRequests: (params) => axiosInstance.get('/seller/purchase-requests', { params }),
+    respondPurchaseRequest: (id, data) => axiosInstance.post(`/seller/purchase-requests/${id}/respond`, data),
+    markPurchaseRequestReady: (id, data) => axiosInstance.post(`/seller/purchase-requests/${id}/ready`, data),
+    confirmPurchaseHandover: (id, data) => axiosInstance.post(`/seller/purchase-requests/${id}/handover`, data),
 };

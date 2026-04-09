@@ -1,4 +1,5 @@
 import Order from "../models/order.js";
+import mongoose from "mongoose";
 import Cart from "../models/cart.js";
 import Product from "../models/product.js";
 import Transaction from "../models/transaction.js";
@@ -17,6 +18,7 @@ import {
   sellerRejectAtomic,
   deliveryAcceptAtomic,
   customerCancelV2,
+  startHubDeliverySearchAtomic,
   resolveWorkflowStatus,
 } from "../services/orderWorkflowService.js";
 import {
@@ -31,6 +33,48 @@ import {
   orderMatchQueryFlexible,
 } from "../utils/orderLookup.js";
 
+const COD_METHODS = new Set(["cash", "cod"]);
+const COD_BLOCK_THRESHOLD_FALLBACK = Math.max(
+  1,
+  Number(process.env.COD_CANCEL_BLOCK_THRESHOLD || 3),
+);
+
+const normalizePaymentMethod = (method) =>
+  String(method || "cash")
+    .trim()
+    .toLowerCase();
+
+const isCodMethod = (method) => COD_METHODS.has(normalizePaymentMethod(method));
+
+const getCodBlockThreshold = async () => {
+  try {
+    const settings = await Setting.findOne({})
+      .select("codCancelBlockThreshold")
+      .lean();
+    const fromSettings = Number(settings?.codCancelBlockThreshold);
+    if (Number.isFinite(fromSettings) && fromSettings >= 1) {
+      return Math.floor(fromSettings);
+    }
+  } catch {
+    // noop, fallback below
+  }
+  return COD_BLOCK_THRESHOLD_FALLBACK;
+};
+
+const applyCodCancellationStrike = async (customerId) => {
+  const customer = await User.findById(customerId);
+  if (!customer) return null;
+  const threshold = await getCodBlockThreshold();
+  const nextCount = Number(customer.codCancelCount || 0) + 1;
+  customer.codCancelCount = nextCount;
+  if (nextCount >= threshold && !customer.codBlocked) {
+    customer.codBlocked = true;
+    customer.codBlockedAt = new Date();
+  }
+  await customer.save();
+  return customer;
+};
+
 /* ===============================
    PLACE ORDER
 ================================ */
@@ -38,6 +82,27 @@ export const placeOrder = async (req, res) => {
   try {
     const customerId = req.user.id;
     const { address, payment, pricing, timeSlot, items } = req.body;
+    const paymentMethod = normalizePaymentMethod(payment?.method);
+    const customer = await User.findById(customerId).select(
+      "walletBalance codBlocked codCancelCount",
+    );
+
+    if (!customer) {
+      return handleResponse(res, 404, "Customer not found");
+    }
+    if (isCodMethod(paymentMethod) && customer.codBlocked) {
+      return handleResponse(
+        res,
+        400,
+        "Cash on Delivery is disabled for your account. Please use online or wallet payment.",
+      );
+    }
+    if (
+      paymentMethod === "wallet" &&
+      Number(customer.walletBalance || 0) < Number(pricing?.total || 0)
+    ) {
+      return handleResponse(res, 400, "Insufficient wallet balance");
+    }
 
     // 1. Generate unique Order ID
     const orderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -74,6 +139,62 @@ export const placeOrder = async (req, res) => {
       }
     }
 
+    // Normalize/resolve product references so downstream hub/vendor mapping is reliable.
+    if (Array.isArray(orderItems) && orderItems.length > 0) {
+      const normalizedItems = [];
+      for (const item of orderItems) {
+        let candidate =
+          item?.product?._id ||
+          item?.productId?._id ||
+          item?.product ||
+          item?.productId ||
+          item?._id ||
+          item?.id;
+        if (candidate && typeof candidate === "object" && candidate._id) {
+          candidate = candidate._id;
+        }
+
+        let resolvedProductId =
+          candidate && mongoose.Types.ObjectId.isValid(String(candidate))
+            ? String(candidate)
+            : null;
+
+        if (!resolvedProductId) {
+          const fallbackQuery = [];
+          if (item?.sku && typeof item.sku === "string") {
+            fallbackQuery.push({ sku: item.sku.trim() });
+          }
+          if (item?.slug && typeof item.slug === "string") {
+            fallbackQuery.push({ slug: item.slug.trim().toLowerCase() });
+          }
+          if (item?.name && typeof item.name === "string") {
+            fallbackQuery.push({ name: item.name.trim() });
+          }
+          if (fallbackQuery.length) {
+            // eslint-disable-next-line no-await-in-loop
+            const found = await Product.findOne({ $or: fallbackQuery })
+              .select("_id")
+              .lean();
+            if (found?._id) resolvedProductId = String(found._id);
+          }
+        }
+
+        if (!resolvedProductId) {
+          return handleResponse(
+            res,
+            400,
+            `Invalid product reference in checkout item: ${item?.name || "Unknown item"}`,
+          );
+        }
+
+        normalizedItems.push({
+          ...item,
+          product: resolvedProductId,
+        });
+      }
+      orderItems = normalizedItems;
+    }
+
     const defaultSlaHours = parseInt(process.env.HUB_SLA_HOURS || "3", 10);
     const slaDeadlineAt = new Date(
       Date.now() + Math.max(1, defaultSlaHours) * 60 * 60 * 1000,
@@ -93,7 +214,10 @@ export const placeOrder = async (req, res) => {
       seller: null,
       items: orderItems,
       address: normalizedAddress,
-      payment,
+      payment: {
+        ...payment,
+        method: paymentMethod,
+      },
       pricing,
       timeSlot: timeSlot || "now",
       status: "pending",
@@ -106,6 +230,24 @@ export const placeOrder = async (req, res) => {
       slaDeadlineAt,
     });
     await newOrder.save();
+
+    if (paymentMethod === "wallet") {
+      const debitAmount = Number(pricing?.total || 0);
+      customer.walletBalance = Math.max(
+        0,
+        Number(customer.walletBalance || 0) - debitAmount,
+      );
+      await customer.save();
+      await Transaction.create({
+        user: customer._id,
+        userModel: "User",
+        order: newOrder._id,
+        type: "Order Payment",
+        amount: -Math.abs(debitAmount),
+        status: "Settled",
+        reference: `WALLET-DEBIT-${orderId}`,
+      });
+    }
 
     // Reserve whatever hub stock is currently available (full or partial).
     const reserved = await reserveHubInventory(hubPlan.allocations, hubPlan.hubId);
@@ -133,6 +275,30 @@ export const placeOrder = async (req, res) => {
       unassignedProcurementItems: finalPlan.shortages.filter((s) => !s.vendorId).length,
     };
 
+    // SOP flow: if hub can fully fulfill, dispatch to delivery search immediately.
+    let orderForResponse = newOrder;
+    if (finalPlan.shortages.length === 0) {
+      try {
+        const dispatched = await startHubDeliverySearchAtomic(newOrder.orderId);
+        if (dispatched) {
+          orderForResponse = dispatched;
+          hubMeta.autoDispatched = true;
+          hubMeta.dispatchWorkflowStatus = dispatched.workflowStatus;
+        } else {
+          hubMeta.autoDispatched = false;
+        }
+      } catch (dispatchErr) {
+        console.warn(
+          `[placeOrder] auto dispatch failed for ${newOrder.orderId}:`,
+          dispatchErr.message,
+        );
+        hubMeta.autoDispatched = false;
+        hubMeta.dispatchError = dispatchErr.message;
+      }
+    } else {
+      hubMeta.autoDispatched = false;
+    }
+
     // Notify admin users about new order for hub-first operations.
     try {
       const admins = await Admin.find({}).select("_id").lean();
@@ -146,11 +312,12 @@ export const placeOrder = async (req, res) => {
             message: `Order #${orderId} received and routed to hub workflow.`,
             type: "order",
             data: {
-              orderId: newOrder.orderId,
-              mongoOrderId: newOrder._id,
-              hubStatus: newOrder.hubStatus,
-              procurementRequired: newOrder.procurementRequired,
+              orderId: orderForResponse.orderId,
+              mongoOrderId: orderForResponse._id,
+              hubStatus: orderForResponse.hubStatus,
+              procurementRequired: orderForResponse.procurementRequired,
               totalAmount: pricing?.total ?? 0,
+              autoDispatched: hubMeta.autoDispatched,
             },
           })),
           { ordered: false },
@@ -159,11 +326,12 @@ export const placeOrder = async (req, res) => {
       emitToAdminOrdersRoom({
         event: "order:new:admin",
         payload: {
-          orderId: newOrder.orderId,
-          mongoOrderId: newOrder._id,
-          hubStatus: newOrder.hubStatus,
-          procurementRequired: newOrder.procurementRequired,
+          orderId: orderForResponse.orderId,
+          mongoOrderId: orderForResponse._id,
+          hubStatus: orderForResponse.hubStatus,
+          procurementRequired: orderForResponse.procurementRequired,
           totalAmount: pricing?.total ?? 0,
+          autoDispatched: hubMeta.autoDispatched,
         },
       });
     } catch (notifyErr) {
@@ -174,7 +342,7 @@ export const placeOrder = async (req, res) => {
     await Cart.findOneAndUpdate({ customerId }, { items: [] });
 
     return handleResponse(res, 201, "Order placed successfully", {
-      ...newOrder.toObject(),
+      ...(orderForResponse?.toObject ? orderForResponse.toObject() : orderForResponse),
       hubMeta,
     });
   } catch (error) {
@@ -412,6 +580,9 @@ export const cancelOrder = async (req, res) => {
           order.orderId,
           reason,
         );
+        if (isCodMethod(order.payment?.method)) {
+          await applyCodCancellationStrike(customerId);
+        }
         return handleResponse(res, 200, "Order cancelled successfully", updated);
       } catch (e) {
         return handleResponse(res, e.statusCode || 500, e.message);
@@ -430,6 +601,9 @@ export const cancelOrder = async (req, res) => {
     order.cancelledBy = "customer";
     order.cancelReason = reason || "Cancelled by user";
     await order.save();
+    if (isCodMethod(order.payment?.method)) {
+      await applyCodCancellationStrike(customerId);
+    }
 
     return handleResponse(res, 200, "Order cancelled successfully", order);
   } catch (error) {
@@ -661,6 +835,25 @@ export const updateOrderStatus = async (req, res) => {
     }
 
     const canonicalOrderId = order.orderId;
+
+    if (
+      order.workflowVersion >= 2 &&
+      role === "admin" &&
+      status === "confirmed" &&
+      order.hubFlowEnabled
+    ) {
+      try {
+        const updated = await startHubDeliverySearchAtomic(canonicalOrderId);
+        return handleResponse(
+          res,
+          200,
+          "Hub order dispatched to delivery search",
+          updated,
+        );
+      } catch (e) {
+        return handleResponse(res, e.statusCode || 500, e.message);
+      }
+    }
 
     if (order.workflowVersion >= 2 && role === "seller") {
       if (status === "confirmed") {
@@ -1167,8 +1360,24 @@ export const getSellerOrders = async (req, res) => {
     const { id: userId, role } = req.user;
     const { startDate, endDate, status: statusParam } = req.query;
 
-    // If admin, fetch all orders. If seller, fetch only their orders.
-    const query = role === "admin" ? {} : { seller: userId };
+    // If admin, fetch all orders.
+    // If seller, fetch:
+    // 1) legacy/direct seller orders (order.seller === userId)
+    // 2) hub-flow orders where this seller has linked purchase requests.
+    let query = {};
+    if (role === "admin") {
+      query = {};
+    } else {
+      const linkedOrderIds = await PurchaseRequest.distinct("orderId", {
+        vendorId: userId,
+      });
+      query = {
+        $or: [
+          { seller: userId },
+          { _id: { $in: linkedOrderIds } },
+        ],
+      };
+    }
 
     /**
      * Admin sidebar uses URL segments (e.g. processed, out-for-delivery) that
@@ -1304,8 +1513,11 @@ export const getAvailableOrders = async (req, res) => {
       workflowVersion: { $gte: 2 },
       workflowStatus: WORKFLOW_STATUS.DELIVERY_SEARCH,
       deliveryBoy: null,
-      seller: { $in: sellerIds },
       skippedBy: { $nin: [userId] },
+      $or: [
+        { seller: { $in: sellerIds } },
+        { hubFlowEnabled: true },
+      ],
     })
       .sort({ createdAt: -1 })
       .limit(limit)

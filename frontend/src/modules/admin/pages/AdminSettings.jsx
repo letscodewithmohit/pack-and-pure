@@ -61,6 +61,7 @@ const AdminSettings = () => {
         metaKeywords: '',
         keywords: [],
         returnDeliveryCommission: 0,
+        codCancelBlockThreshold: 3,
     });
 
     useEffect(() => {
@@ -278,6 +279,17 @@ const AdminSettings = () => {
                                         type="text"
                                         value={settings.currencySymbol}
                                         onChange={(e) => handleInputChange('currencySymbol', e.target.value)}
+                                        className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                                    />
+                                </div>
+                                <div className="space-y-3">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">COD Block Threshold (Cancels)</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={20}
+                                        value={settings.codCancelBlockThreshold}
+                                        onChange={(e) => handleInputChange('codCancelBlockThreshold', Number(e.target.value || 1))}
                                         className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl text-sm font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
                                     />
                                 </div>

@@ -5,7 +5,6 @@ import {
   SupplyFormModal,
   SupplyInfoModal,
 } from "../components/supply/SupplyActionModals";
-import { supplyChainStorage } from "../services/supplyChainStorage";
 import { adminApi } from "../services/adminApi";
 
 const emptyVendorForm = {
@@ -20,7 +19,7 @@ const emptyVendorForm = {
   status: "Active",
 };
 
-const emptyRequestForm = { product: "", quantity: "100" };
+const emptyRequestForm = { productId: "", quantity: "100" };
 
 const VendorManagementPage = () => {
   const [rows, setRows] = useState([]);
@@ -33,9 +32,11 @@ const VendorManagementPage = () => {
   const [infoOpen, setInfoOpen] = useState(false);
   const [infoMessage, setInfoMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState([]);
 
   useEffect(() => {
     fetchSellers();
+    fetchProducts();
   }, []);
 
   const toLocationText = (seller) => {
@@ -72,6 +73,21 @@ const VendorManagementPage = () => {
       setInfoOpen(true);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchProducts = async () => {
+    try {
+      const res = await adminApi.getProducts({
+        page: 1,
+        limit: 300,
+        status: "active",
+      });
+      const payload = res?.data?.result || {};
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      setProducts(items);
+    } catch {
+      setProducts([]);
     }
   };
 
@@ -168,29 +184,33 @@ const VendorManagementPage = () => {
     setRequestOpen(true);
   };
 
-  const createPurchaseRequest = () => {
+  const createPurchaseRequest = async () => {
     if (!currentVendor) return;
-    const product = requestForm.product.trim();
-    if (!product) return;
+    const productId = String(requestForm.productId || "").trim();
+    if (!productId) {
+      setInfoMessage("Please select a product.");
+      setInfoOpen(true);
+      return;
+    }
     const qty = Math.max(1, Number(requestForm.quantity || 1));
-    const existing = supplyChainStorage.getPurchaseRequests();
-    const requestId = supplyChainStorage.createId("PR");
-
-    supplyChainStorage.savePurchaseRequests([
-      {
-        id: requestId,
-        requestId,
-        vendorName: currentVendor.vendorName,
-        product,
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setInfoMessage("Please enter valid quantity.");
+      setInfoOpen(true);
+      return;
+    }
+    try {
+      await adminApi.createManualPurchaseRequest({
+        vendorId: currentVendor.id,
+        productId,
         quantity: qty,
-        status: "Pending",
-      },
-      ...existing,
-    ]);
-
-    setRequestOpen(false);
-    setInfoMessage("Purchase request created and synced to Purchase Requests module.");
-    setInfoOpen(true);
+      });
+      setRequestOpen(false);
+      setInfoMessage("Purchase request created and synced to Purchase Requests module.");
+      setInfoOpen(true);
+    } catch (error) {
+      setInfoMessage(error?.response?.data?.message || "Failed to create purchase request.");
+      setInfoOpen(true);
+    }
   };
 
   const stats = useMemo(() => {
@@ -301,7 +321,18 @@ const VendorManagementPage = () => {
         title={`Send Purchase Request${currentVendor ? ` - ${currentVendor.vendorName}` : ""}`}
         submitLabel="Create"
         fields={[
-          { key: "product", label: "Product" },
+          {
+            key: "productId",
+            label: "Product",
+            type: "select",
+            options: [
+              { value: "", label: "Select Product" },
+              ...products.map((p) => ({
+                value: p._id,
+                label: p.name,
+              })),
+            ],
+          },
           { key: "quantity", label: "Quantity", type: "number" },
         ]}
         values={requestForm}

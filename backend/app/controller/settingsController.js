@@ -30,6 +30,7 @@ const ALLOWED_KEYS = [
   "metaKeywords",
   "keywords",
   "returnDeliveryCommission",
+  "codCancelBlockThreshold",
 ];
 
 /** Joi schema for validating settings update payload */
@@ -59,6 +60,7 @@ const updateSettingsSchema = Joi.object({
   metaKeywords: Joi.string().allow("").max(1000),
   keywords: Joi.array().items(Joi.string().max(200)),
   returnDeliveryCommission: Joi.number().min(0),
+  codCancelBlockThreshold: Joi.number().integer().min(1).max(20),
 }).unknown(false);
 
 /**
@@ -75,7 +77,7 @@ export const getPublicSettings = async (req, res) => {
 
     let settings = await Setting.findOne(filter)
       .select(
-        "appName supportEmail supportPhone currencySymbol currencyCode timezone logoUrl faviconUrl primaryColor secondaryColor returnDeliveryCommission createdAt",
+        "appName supportEmail supportPhone currencySymbol currencyCode timezone logoUrl faviconUrl primaryColor secondaryColor returnDeliveryCommission codCancelBlockThreshold createdAt",
       )
       .lean();
 

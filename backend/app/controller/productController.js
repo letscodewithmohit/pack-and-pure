@@ -30,6 +30,47 @@ function parseSellerIdFilters({ sellerId, sellerIds }) {
   return [];
 }
 
+function normalizeOptionalString(value) {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+}
+
+async function ensureUniqueSlug(baseSlug, excludeId = null) {
+  const base = normalizeOptionalString(baseSlug) || "product";
+  let candidate = slugify(base);
+  if (!candidate) candidate = "product";
+
+  let count = 0;
+  while (count < 200) {
+    const query = { slug: candidate };
+    if (excludeId) query._id = { $ne: excludeId };
+    const exists = await Product.exists(query);
+    if (!exists) return candidate;
+    count += 1;
+    candidate = `${slugify(base)}-${count + 1}`;
+  }
+
+  return `${slugify(base)}-${Date.now()}`;
+}
+
+async function ensureUniqueSku(inputSku, excludeId = null) {
+  const cleaned = normalizeOptionalString(inputSku).toUpperCase();
+  const base = cleaned || `SKU-${Date.now().toString().slice(-8)}`;
+  let candidate = base;
+  let count = 0;
+
+  while (count < 200) {
+    const query = { sku: candidate };
+    if (excludeId) query._id = { $ne: excludeId };
+    const exists = await Product.exists(query);
+    if (!exists) return candidate;
+    count += 1;
+    candidate = `${base}-${count + 1}`;
+  }
+
+  return `${base}-${Math.floor(Math.random() * 10000)}`;
+}
+
 /* ===============================
    GET ALL PRODUCTS (Public/Admin)
 ================================ */
@@ -266,12 +307,10 @@ export const createProduct = async (req, res) => {
     // Seller-created products require admin approval before going live.
     productData.status = "pending_approval";
 
-    // Auto-generate slug
-    if (!productData.slug || productData.slug.trim() === "") {
-      productData.slug = slugify(productData.name);
-    } else {
-      productData.slug = slugify(productData.slug);
-    }
+    // Always resolve to a unique slug/SKU to avoid approval-time duplicate failures.
+    const desiredSlug = normalizeOptionalString(productData.slug) || productData.name;
+    productData.slug = await ensureUniqueSlug(desiredSlug);
+    productData.sku = await ensureUniqueSku(productData.sku);
 
     // Handle Images
     if (req.files) {
@@ -311,7 +350,9 @@ export const createProduct = async (req, res) => {
   } catch (error) {
     console.error("Create Product Error:", error);
     if (error.code === 11000) {
-      return handleResponse(res, 400, "Slug or SKU already exists");
+      const key = Object.keys(error.keyPattern || {})[0];
+      const field = key || "Slug or SKU";
+      return handleResponse(res, 400, `${field} already exists`);
     }
     return handleResponse(res, 500, error.message);
   }
@@ -341,11 +382,23 @@ export const updateProduct = async (req, res) => {
       productData.status = "pending_approval";
     }
 
-    if (productData.name) {
-      if (!productData.slug || productData.slug.trim() === "") {
-        productData.slug = slugify(productData.name);
+    if (productData.name !== undefined || productData.slug !== undefined) {
+      const desiredSlug =
+        normalizeOptionalString(productData.slug) ||
+        normalizeOptionalString(productData.name) ||
+        product.slug;
+      productData.slug = await ensureUniqueSlug(desiredSlug, product._id);
+    }
+
+    if (productData.sku !== undefined) {
+      const desiredSku = normalizeOptionalString(productData.sku);
+      if (desiredSku) {
+        productData.sku = await ensureUniqueSku(desiredSku, product._id);
+      } else if (product.sku) {
+        // Keep existing SKU if admin leaves field blank in edit form.
+        productData.sku = product.sku;
       } else {
-        productData.slug = slugify(productData.slug);
+        productData.sku = await ensureUniqueSku("", product._id);
       }
     }
 
@@ -422,7 +475,9 @@ export const updateProduct = async (req, res) => {
       return handleResponse(res, 400, `Invalid ${error.path}: ${error.value}`);
     }
     if (error.code === 11000) {
-      return handleResponse(res, 400, "Slug or SKU already exists");
+      const key = Object.keys(error.keyPattern || {})[0];
+      const field = key || "Slug or SKU";
+      return handleResponse(res, 400, `${field} already exists`);
     }
     return handleResponse(res, 500, error.message);
   }

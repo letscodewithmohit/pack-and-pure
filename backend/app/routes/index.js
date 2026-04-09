@@ -35,6 +35,7 @@ const setupRoutes = (app) => {
     router.use("/admin/hub-inventory", hubInventoryRoute);
     router.use("/admin/purchase-requests", purchaseRequestRoute);
     router.use("/admin/pickup-partners", pickupPartnerRoute);
+    router.use("/pickup-partner", pickupPartnerRoute);
     router.use("/categories", categoryRoute);
     router.use("/products", productRoute);
     router.use("/cart", cartRoute);

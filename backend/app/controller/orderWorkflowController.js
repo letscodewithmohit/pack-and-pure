@@ -10,6 +10,15 @@ import { getCachedRoute } from "../services/mapsRouteService.js";
 import Order from "../models/order.js";
 import { orderMatchQueryFromRouteParam } from "../utils/orderLookup.js";
 
+function parseHubCoordinate(...keys) {
+  for (const key of keys) {
+    const raw = process.env[key];
+    const value = Number(raw);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
 export const confirmPickup = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -94,18 +103,26 @@ export const getOrderRoute = async (req, res) => {
       return handleResponse(res, 404, "Order not found");
     }
 
-    const seller = order.seller;
-    const coords = seller?.location?.coordinates;
-    if (!Array.isArray(coords) || coords.length < 2) {
-      return handleResponse(res, 400, "Seller location missing");
-    }
-    const [slng, slat] = coords;
-
     const origin = { lat: originLat, lng: originLng };
     let dest;
 
     if (phase === "pickup") {
-      dest = { lat: slat, lng: slng };
+      if (order.hubFlowEnabled) {
+        const hubLat = parseHubCoordinate("HUB_LOCATION_LAT", "HUB_LAT", "DEFAULT_HUB_LAT");
+        const hubLng = parseHubCoordinate("HUB_LOCATION_LNG", "HUB_LNG", "DEFAULT_HUB_LNG");
+        if (!Number.isFinite(hubLat) || !Number.isFinite(hubLng)) {
+          return handleResponse(res, 400, "Hub pickup location missing");
+        }
+        dest = { lat: hubLat, lng: hubLng };
+      } else {
+        const seller = order.seller;
+        const coords = seller?.location?.coordinates;
+        if (!Array.isArray(coords) || coords.length < 2) {
+          return handleResponse(res, 400, "Seller location missing");
+        }
+        const [slng, slat] = coords;
+        dest = { lat: slat, lng: slng };
+      }
     } else {
       const c = order.address?.location;
       if (

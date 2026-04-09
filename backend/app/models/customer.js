@@ -26,6 +26,14 @@ const userSchema = new mongoose.Schema(
             type: String,
             trim: true,
         },
+        businessName: {
+            type: String,
+            trim: true,
+        },
+        contactPerson: {
+            type: String,
+            trim: true,
+        },
 
         email: {
             type: String,
@@ -47,8 +55,8 @@ const userSchema = new mongoose.Schema(
 
         role: {
             type: String,
-            enum: ["user", "admin", "delivery", "seller"],
-            default: "user",
+            enum: ["user", "customer", "admin", "delivery", "seller"],
+            default: "customer",
         },
 
         isVerified: {
@@ -72,6 +80,18 @@ const userSchema = new mongoose.Schema(
             type: Number,
             default: 0,
         },
+        codCancelCount: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        codBlocked: {
+            type: Boolean,
+            default: false,
+        },
+        codBlockedAt: {
+            type: Date,
+        },
 
         isActive: {
             type: Boolean,
@@ -88,5 +108,6 @@ const userSchema = new mongoose.Schema(
 userSchema.index({ role: 1, isActive: 1 });
 userSchema.index({ email: 1 }, { unique: true, sparse: true });
 userSchema.index({ phone: 1 }, { unique: true });
+userSchema.index({ codBlocked: 1, codCancelCount: 1 });
 
 export default mongoose.model("User", userSchema);

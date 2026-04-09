@@ -14,7 +14,9 @@ import {
     UserPlus,
     RotateCw,
     Activity,
-    Loader2
+    Loader2,
+    Ban,
+    CheckCircle2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -32,6 +34,7 @@ const CustomerManagement = () => {
     const [pageSize, setPageSize] = useState(25);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
+    const [codUpdatingId, setCodUpdatingId] = useState('');
 
     useEffect(() => {
         fetchCustomers(1);
@@ -95,6 +98,24 @@ const CustomerManagement = () => {
             setIsExporting(false);
             toast.success('Customer database exported successfully!');
         }, 1500);
+    };
+
+    const handleToggleCod = async (customer) => {
+        try {
+            setCodUpdatingId(String(customer.id));
+            const nextBlocked = !customer.codBlocked;
+            await adminApi.updateUserCodPolicy(customer.id, {
+                codBlocked: nextBlocked,
+                resetCancelCount: !nextBlocked,
+            });
+            toast.success(nextBlocked ? 'COD blocked for customer' : 'COD enabled for customer');
+            await fetchCustomers(page);
+        } catch (error) {
+            console.error("Failed to update COD policy:", error);
+            toast.error(error?.response?.data?.message || "Failed to update COD policy");
+        } finally {
+            setCodUpdatingId('');
+        }
     };
 
     const getTimeAgo = (date) => {
@@ -215,13 +236,14 @@ const CustomerManagement = () => {
                                 <th className="ds-table-header-cell">Activity</th>
                                 <th className="ds-table-header-cell">Total Spend</th>
                                 <th className="ds-table-header-cell">Status</th>
+                                <th className="ds-table-header-cell">COD</th>
                                 <th className="ds-table-header-cell text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {!loading && filteredCustomers.length === 0 ? (
                                 <tr>
-                                    <td colSpan="5" className="px-6 py-20 text-center">
+                                    <td colSpan="6" className="px-6 py-20 text-center">
                                         <div className="flex flex-col items-center gap-3">
                                             <div className="p-4 bg-gray-50 rounded-full">
                                                 <Users className="h-8 w-8 text-gray-300" />
@@ -278,6 +300,19 @@ const CustomerManagement = () => {
                                                 {cust.status}
                                             </Badge>
                                         </td>
+                                        <td className="ds-table-cell">
+                                            <div className="flex items-center gap-2">
+                                                <Badge
+                                                    variant={cust.codBlocked ? 'error' : 'success'}
+                                                    className="ds-badge"
+                                                >
+                                                    {cust.codBlocked ? 'blocked' : 'enabled'}
+                                                </Badge>
+                                                <span className="text-[10px] text-gray-500 font-semibold">
+                                                    strikes: {Number(cust.codCancelCount || 0)}
+                                                </span>
+                                            </div>
+                                        </td>
                                         <td className="ds-table-cell text-right">
                                             <div className="flex items-center justify-end gap-2">
                                                 <button
@@ -285,6 +320,25 @@ const CustomerManagement = () => {
                                                     className="p-2 bg-primary/10 text-primary rounded-lg hover:bg-primary hover:text-white transition-all"
                                                 >
                                                     <Eye className="ds-icon-sm" />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleToggleCod(cust)}
+                                                    disabled={codUpdatingId === String(cust.id)}
+                                                    className={cn(
+                                                        "p-2 rounded-lg transition-all",
+                                                        cust.codBlocked
+                                                            ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white"
+                                                            : "bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white",
+                                                    )}
+                                                    title={cust.codBlocked ? "Enable COD" : "Block COD"}
+                                                >
+                                                    {codUpdatingId === String(cust.id) ? (
+                                                        <Loader2 className="ds-icon-sm animate-spin" />
+                                                    ) : cust.codBlocked ? (
+                                                        <CheckCircle2 className="ds-icon-sm" />
+                                                    ) : (
+                                                        <Ban className="ds-icon-sm" />
+                                                    )}
                                                 </button>
                                                 <button className="p-2 bg-gray-50 text-gray-400 rounded-lg hover:bg-gray-900 hover:text-white transition-all">
                                                     <MoreVertical className="ds-icon-sm" />

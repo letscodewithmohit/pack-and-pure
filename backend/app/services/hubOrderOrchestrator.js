@@ -104,8 +104,29 @@ export const reserveHubInventory = async (allocations, hubId = HUB_ID) => {
  * Create procurement requests grouped by vendor for shortage items.
  */
 export const createAutoPurchaseRequests = async ({ order, shortages, hubId = HUB_ID }) => {
+  const shortageProductIds = shortages
+    .map((item) => String(item.productId || ""))
+    .filter(Boolean);
+
+  const fallbackProducts = shortageProductIds.length
+    ? await Product.find({ _id: { $in: shortageProductIds } })
+        .select("_id sellerId")
+        .lean()
+    : [];
+  const fallbackSellerMap = new Map(
+    fallbackProducts.map((p) => [String(p._id), p?.sellerId ? String(p.sellerId) : null]),
+  );
+
+  const enrichedShortages = shortages.map((item) => {
+    if (item.vendorId) return item;
+    return {
+      ...item,
+      vendorId: fallbackSellerMap.get(String(item.productId)) || null,
+    };
+  });
+
   const grouped = new Map();
-  for (const item of shortages) {
+  for (const item of enrichedShortages) {
     const groupKey = item.vendorId || "UNASSIGNED";
     if (!grouped.has(groupKey)) grouped.set(groupKey, []);
     grouped.get(groupKey).push(item);

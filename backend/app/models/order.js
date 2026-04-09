@@ -162,6 +162,14 @@ const orderSchema = new mongoose.Schema(
       type: Date,
       index: true,
     },
+    slaBreached: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    slaBreachedAt: {
+      type: Date,
+    },
     timeSlot: {
       type: String,
       default: "now",

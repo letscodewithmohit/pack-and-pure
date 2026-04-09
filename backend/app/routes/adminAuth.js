@@ -30,7 +30,9 @@ import {
     createSellerByAdmin,
     updateSellerByAdmin,
     getPlatformSettings,
-    updatePlatformSettings
+    updatePlatformSettings,
+    getCodCustomers,
+    updateCustomerCodPolicy
 } from "../controller/adminController.js";
 
 import { verifyToken, allowRoles } from "../middleware/authMiddleware.js";
@@ -82,6 +84,8 @@ router.put(
 );
 router.get("/users", verifyToken, allowRoles("admin"), getUsers);
 router.get("/users/:id", verifyToken, allowRoles("admin"), getUserById);
+router.get("/users-cod", verifyToken, allowRoles("admin"), getCodCustomers);
+router.patch("/users/:id/cod-policy", verifyToken, allowRoles("admin"), updateCustomerCodPolicy);
 router.get("/sellers", verifyToken, allowRoles("admin"), getSellers);
 router.post("/sellers", verifyToken, allowRoles("admin"), createSellerByAdmin);
 router.put("/sellers/:id", verifyToken, allowRoles("admin"), updateSellerByAdmin);

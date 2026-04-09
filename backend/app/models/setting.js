@@ -75,6 +75,11 @@ const settingSchema = new mongoose.Schema(
             type: Number,
             default: 0,
         },
+        codCancelBlockThreshold: {
+            type: Number,
+            default: 3,
+            min: 1,
+        },
     },
     {
         timestamps: true,

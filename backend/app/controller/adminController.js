@@ -19,7 +19,7 @@ export const getAdminStats = async (req, res) => {
     // 1. Basic Counts
     const [totalCustomers, totalSellers, totalRiders, totalOrders] =
       await Promise.all([
-        User.countDocuments({ role: "user" }),
+        User.countDocuments({ role: { $in: ["user", "customer"] } }),
         Seller.countDocuments(),
         Delivery.countDocuments(),
         Order.countDocuments(),
@@ -1077,13 +1077,14 @@ export const getCashSettlementHistory = async (req, res) => {
 ================================ */
 export const getUsers = async (req, res) => {
   try {
+    const roleMatch = { $in: ["user", "customer"] };
     const { page, limit, skip } = getPagination(req, {
       defaultLimit: 25,
       maxLimit: 200,
     });
 
     const pipeline = [
-      { $match: { role: "user" } },
+      { $match: { role: roleMatch } },
       {
         $lookup: {
           from: "orders",
@@ -1096,6 +1097,8 @@ export const getUsers = async (req, res) => {
         $project: {
           id: { $toString: "$_id" },
           name: { $ifNull: ["$name", "Unnamed Customer"] },
+          businessName: { $ifNull: ["$businessName", ""] },
+          contactPerson: { $ifNull: ["$contactPerson", ""] },
           email: 1,
           phone: 1,
           joinedDate: "$createdAt",
@@ -1105,6 +1108,9 @@ export const getUsers = async (req, res) => {
           totalOrders: { $size: "$userOrders" },
           totalSpent: { $sum: "$userOrders.pricing.total" },
           lastOrderDate: { $max: "$userOrders.createdAt" },
+          codBlocked: { $ifNull: ["$codBlocked", false] },
+          codCancelCount: { $ifNull: ["$codCancelCount", 0] },
+          codBlockedAt: 1,
           avatar: {
             $concat: [
               "https://api.dicebear.com/7.x/avataaars/svg?seed=",
@@ -1148,7 +1154,12 @@ export const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
     const user = await User.aggregate([
-      { $match: { _id: new mongoose.Types.ObjectId(id), role: "user" } },
+      {
+        $match: {
+          _id: new mongoose.Types.ObjectId(id),
+          role: { $in: ["user", "customer"] },
+        },
+      },
       {
         $lookup: {
           from: "orders",
@@ -1161,6 +1172,8 @@ export const getUserById = async (req, res) => {
         $project: {
           id: { $toString: "$_id" },
           name: { $ifNull: ["$name", "Unnamed Customer"] },
+          businessName: { $ifNull: ["$businessName", ""] },
+          contactPerson: { $ifNull: ["$contactPerson", ""] },
           email: 1,
           phone: 1,
           joinedDate: "$createdAt",
@@ -1177,6 +1190,9 @@ export const getUserById = async (req, res) => {
             ],
           },
           addresses: { $ifNull: ["$addresses", []] },
+          codBlocked: { $ifNull: ["$codBlocked", false] },
+          codCancelCount: { $ifNull: ["$codCancelCount", 0] },
+          codBlockedAt: 1,
         },
       },
     ]);
@@ -1229,6 +1245,100 @@ export const getSellers = async (req, res) => {
       .sort({ shopName: 1 })
       .lean();
     return handleResponse(res, 200, "Sellers fetched", sellers);
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+/* ===============================
+   GET COD CUSTOMERS (Admin)
+================================ */
+export const getCodCustomers = async (req, res) => {
+  try {
+    const { page, limit, skip } = getPagination(req, {
+      defaultLimit: 25,
+      maxLimit: 200,
+    });
+    const search = String(req.query.search || "").trim();
+    const status = String(req.query.status || "all").toLowerCase();
+
+    const match = {
+      role: { $in: ["user", "customer"] },
+    };
+    if (status === "blocked") {
+      match.codBlocked = true;
+    } else if (status === "eligible") {
+      match.codBlocked = { $ne: true };
+    }
+    if (search) {
+      match.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } },
+        { businessName: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      User.find(match)
+        .select(
+          "_id name businessName contactPerson email phone isActive codBlocked codCancelCount codBlockedAt createdAt",
+        )
+        .sort({ codBlocked: -1, codCancelCount: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      User.countDocuments(match),
+    ]);
+
+    return handleResponse(res, 200, "COD customers fetched", {
+      items,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+    });
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+/* ===============================
+   UPDATE CUSTOMER COD POLICY (Admin)
+================================ */
+export const updateCustomerCodPolicy = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { codBlocked, resetCancelCount, codCancelCount } = req.body || {};
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return handleResponse(res, 400, "Invalid customer id");
+    }
+
+    const customer = await User.findById(id);
+    if (!customer || !["user", "customer"].includes(String(customer.role || ""))) {
+      return handleResponse(res, 404, "Customer not found");
+    }
+
+    if (typeof codBlocked === "boolean") {
+      customer.codBlocked = codBlocked;
+      customer.codBlockedAt = codBlocked ? new Date() : null;
+    }
+    if (resetCancelCount === true) {
+      customer.codCancelCount = 0;
+    }
+    if (codCancelCount !== undefined && Number.isFinite(Number(codCancelCount))) {
+      customer.codCancelCount = Math.max(0, Math.floor(Number(codCancelCount)));
+    }
+
+    await customer.save();
+
+    return handleResponse(res, 200, "Customer COD policy updated", {
+      _id: customer._id,
+      codBlocked: customer.codBlocked,
+      codCancelCount: customer.codCancelCount,
+      codBlockedAt: customer.codBlockedAt || null,
+    });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }

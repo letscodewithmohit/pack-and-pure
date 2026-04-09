@@ -164,13 +164,19 @@ const CheckoutPage = () => {
     { id: "2hours", label: "2 hours", sublabel: "Scheduled" },
   ];
 
-  // Only Cash on Delivery is currently enabled; Razorpay/online is disabled.
+  // COD + Wallet enabled. Online gateway flow can be plugged in next.
   const paymentMethods = [
     {
       id: "cash",
       label: "Cash on Delivery",
       icon: Banknote,
       sublabel: "Pay after delivery",
+    },
+    {
+      id: "wallet",
+      label: "Wallet",
+      icon: CreditCard,
+      sublabel: "Use wallet balance",
     },
   ];
 
@@ -363,7 +369,10 @@ const CheckoutPage = () => {
         address: addressForOrder,
         payment: {
           method: selectedPayment,
-          status: selectedPayment === "cash" ? "pending" : "completed", // For simulation
+          status:
+            selectedPayment === "wallet"
+              ? "completed"
+              : "pending",
         },
         pricing: {
           subtotal: cartTotal,
@@ -376,7 +385,8 @@ const CheckoutPage = () => {
         },
         timeSlot: selectedTimeSlot,
         items: cart.map((item) => ({
-          product: item.id || item._id,
+          // Prefer backend Mongo _id for procurement/vendor mapping.
+          product: item._id || item.id,
           name: item.name,
           quantity: item.quantity,
           price: item.price,
@@ -389,10 +399,9 @@ const CheckoutPage = () => {
       if (response.data.success) {
         const order = response.data.result;
 
-        // Only Cash on Delivery is supported; online (Razorpay) is disabled.
         clearCart();
 
-        showToast(`Order placed — waiting for seller to accept.`, "success");
+        showToast(`Order placed — processing at hub.`, "success");
         setOrderId(order.orderId);
         setShowSuccess(true);
 

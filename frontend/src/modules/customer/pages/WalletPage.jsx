@@ -27,23 +27,19 @@ const WalletPage = () => {
             try {
                 const [profileRes, ordersRes] = await Promise.all([
                     customerApi.getProfile(),
-                    customerApi.getMyOrders(),
+                    customerApi.getWalletTransactions({ page: 1, limit: 100 }),
                 ]);
                 const profile = profileRes.data?.result ?? profileRes.data?.data ?? profileRes.data;
-                const rawOrders = ordersRes.data?.results ?? ordersRes.data?.result ?? [];
-                const orders = Array.isArray(rawOrders) ? rawOrders : [];
                 setBalance(profile?.walletBalance ?? 0);
-                // Only orders purchased using wallet
-                const walletOrders = orders.filter(
-                    (o) => (o.payment?.method || '').toLowerCase() === 'wallet'
-                );
-                const items = walletOrders.map((o) => ({
-                    _id: o._id,
-                    type: 'debit',
-                    title: 'Order Payment',
-                    amount: o.pricing?.total ?? o.payableAmount ?? 0,
-                    date: o.createdAt,
-                    orderId: o.orderId,
+                const rawTx = ordersRes.data?.result?.items ?? ordersRes.data?.items ?? [];
+                const txs = Array.isArray(rawTx) ? rawTx : [];
+                const items = txs.map((tx) => ({
+                    _id: tx._id,
+                    type: tx.type === "credit" ? "credit" : "debit",
+                    title: tx.title || (tx.type === "credit" ? "Wallet Credit" : "Wallet Debit"),
+                    amount: Number(tx.amount || 0),
+                    date: tx.date || tx.createdAt,
+                    orderId: tx.orderId,
                 }));
                 setTransactions(items);
             } catch (err) {

@@ -22,6 +22,11 @@ const purchaseRequestItemSchema = new mongoose.Schema(
       required: true,
       min: 1,
     },
+    committedQty: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
   },
   { _id: false },
 );
@@ -37,7 +42,6 @@ const purchaseRequestSchema = new mongoose.Schema(
     orderId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Order",
-      required: true,
       index: true,
     },
     hubId: {
@@ -65,14 +69,63 @@ const purchaseRequestSchema = new mongoose.Schema(
         "vendor_confirmed",
         "pickup_assigned",
         "picked",
+        "hub_delivered",
         "received_at_hub",
         "verified",
         "closed",
         "cancelled",
+        "exception",
       ],
       default: "created",
       index: true,
     },
+    vendorResponse: {
+      status: {
+        type: String,
+        enum: ["pending", "accepted", "rejected", "partial"],
+        default: "pending",
+      },
+      respondedAt: Date,
+      rejectionReason: String,
+      notes: String,
+    },
+    vendorReadyAt: Date,
+    vendorReadyNotes: String,
+    vendorHandover: {
+      confirmedAt: Date,
+      otpVerifiedAt: Date,
+      notes: String,
+    },
+    pickupOtpHash: String,
+    pickupOtpExpiresAt: Date,
+    pickupOtpVerifiedAt: Date,
+    pickupProof: {
+      pickedAt: Date,
+      pickedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "PickupPartner",
+      },
+      vendorImageUrl: String,
+      notes: String,
+      location: {
+        lat: Number,
+        lng: Number,
+      },
+    },
+    hubDropProof: {
+      droppedAt: Date,
+      droppedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "PickupPartner",
+      },
+      hubImageUrl: String,
+      notes: String,
+      location: {
+        lat: Number,
+        lng: Number,
+      },
+    },
+    exceptionReason: String,
     eta: Date,
     notes: String,
   },

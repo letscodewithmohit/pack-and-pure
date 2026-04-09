@@ -17,6 +17,7 @@ import ScrollToTop from '../../modules/customer/components/shared/ScrollToTop';
 import Auth from '../../modules/seller/pages/Auth';
 import AdminAuth from '../../modules/admin/pages/AdminAuth';
 import DeliveryAuth from '../../modules/delivery/pages/DeliveryAuth';
+import PickupAuth from '../../modules/pickup/pages/Auth';
 import CustomerAuth from '../../modules/customer/pages/CustomerAuth';
 
 // Customer Pages (lazy-loaded)
@@ -47,6 +48,7 @@ const WalletPage = lazy(() => import('../../modules/customer/pages/WalletPage'))
 const SellerModule = lazy(() => import('../../modules/seller/routes/index'));
 const AdminModule = lazy(() => import('../../modules/admin/routes/index'));
 const DeliveryModule = lazy(() => import('../../modules/delivery/routes/index'));
+const PickupModule = lazy(() => import('../../modules/pickup/routes/index'));
 
 import CustomerLayout from '../../modules/customer/components/layout/CustomerLayout';
 
@@ -97,6 +99,10 @@ const AppRouter = () => {
                     element: <DeliveryAuth />,
                 },
                 {
+                    path: 'pickup/auth',
+                    element: <PickupAuth />,
+                },
+                {
                     path: 'seller/*',
                     element: (
                         <ProtectedRoute>
@@ -122,6 +128,16 @@ const AppRouter = () => {
                         <ProtectedRoute>
                             <RoleGuard allowedRoles={[UserRole.DELIVERY]}>
                                 <DeliveryModule />
+                            </RoleGuard>
+                        </ProtectedRoute>
+                    ),
+                },
+                {
+                    path: 'pickup/*',
+                    element: (
+                        <ProtectedRoute>
+                            <RoleGuard allowedRoles={[UserRole.PICKUP_PARTNER]}>
+                                <PickupModule />
                             </RoleGuard>
                         </ProtectedRoute>
                     ),
