@@ -107,10 +107,15 @@ const DeliveryLayout = () => {
     if (!newOrder) return;
     shownOrderIdsRef.current = new Set(shownOrderIdsRef.current).add(newOrder.orderId);
     const total = newOrder.pricing?.total || 0;
+    const pickupLabel = newOrder.hubFlowEnabled
+      ? newOrder.hubId
+        ? `Hub ${newOrder.hubId}`
+        : "Hub"
+      : newOrder.seller?.shopName || "Seller";
     setActiveOrder({
       id: newOrder.orderId,
       mongoId: newOrder._id,
-      pickup: newOrder.seller?.shopName || "Seller",
+      pickup: pickupLabel,
       drop: newOrder.address?.address || "Customer Address",
       distance: "Nearby",
       estTime: "10-15 min",

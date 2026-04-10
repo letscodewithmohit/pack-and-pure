@@ -123,48 +123,53 @@ const ProductManagement = () => {
         return () => clearTimeout(timer);
     }, [searchTerm, filterCategory, filterStatus, pageSize]);
 
-    const handleSave = async () => {
-        if (!editingItem) {
-            return toast.error('Only product editing is allowed for admins');
-        }
+    const buildProductFormData = () => {
+        const data = new FormData();
+        data.append('name', formData.name);
+        data.append('slug', formData.slug);
+        data.append('sku', formData.sku);
+        data.append('description', formData.description);
+        data.append('price', Number(formData.price));
+        data.append('salePrice', Number(formData.salePrice) || 0);
+        data.append('stock', Number(formData.stock));
+        data.append('lowStockAlert', Number(formData.lowStockAlert) || 5);
+        data.append('unit', formData.unit);
+        data.append('headerId', formData.header);
+        data.append('categoryId', formData.categoryId);
+        data.append('subcategoryId', formData.subcategoryId);
+        data.append('status', formData.status);
+        data.append('isFeatured', formData.isFeatured);
+        data.append('brand', formData.brand);
+        data.append('weight', formData.weight);
+        data.append('tags', formData.tags);
+        data.append('variants', JSON.stringify(formData.variants));
 
+        if (formData.mainImageFile) {
+            data.append('mainImage', formData.mainImageFile);
+        }
+        if (formData.galleryFiles && formData.galleryFiles.length > 0) {
+            formData.galleryFiles.forEach((file) => data.append('galleryImages', file));
+        }
+        return data;
+    };
+
+    const handleSave = async () => {
         if (!formData.name || !formData.price || !formData.stock || !formData.header || !formData.categoryId || !formData.subcategoryId) {
             return toast.error('Please fill all required fields, including categories');
         }
 
         setIsSaving(true);
         try {
-            const data = new FormData();
-            data.append('name', formData.name);
-            data.append('slug', formData.slug);
-            data.append('sku', formData.sku);
-            data.append('description', formData.description);
-            data.append('price', Number(formData.price));
-            data.append('salePrice', Number(formData.salePrice) || 0);
-            data.append('stock', Number(formData.stock));
-            data.append('lowStockAlert', Number(formData.lowStockAlert) || 5);
-            data.append('unit', formData.unit);
-            data.append('headerId', formData.header);
-            data.append('categoryId', formData.categoryId);
-            data.append('subcategoryId', formData.subcategoryId);
-            data.append('status', formData.status);
-            data.append('isFeatured', formData.isFeatured);
-            data.append('brand', formData.brand);
-            data.append('weight', formData.weight);
-            data.append('tags', formData.tags);
-            data.append('variants', JSON.stringify(formData.variants));
-
-            if (formData.mainImageFile) {
-                data.append('mainImage', formData.mainImageFile);
+            const data = buildProductFormData();
+            if (editingItem?._id) {
+                await adminApi.updateProduct(editingItem._id, data);
+                toast.success('Product updated successfully');
+            } else {
+                await adminApi.createProduct(data);
+                toast.success('Product created successfully');
             }
-            if (formData.galleryFiles && formData.galleryFiles.length > 0) {
-                formData.galleryFiles.forEach((file) => data.append('galleryImages', file));
-            }
-
-            await adminApi.updateProduct(editingItem._id, data);
-            toast.success('Product updated successfully');
             setIsProductModalOpen(false);
-            fetchProducts(page);
+            fetchProducts(editingItem?._id ? page : 1);
         } catch (error) {
             toast.error(error.response?.data?.message || 'Failed to save product');
         } finally {
@@ -295,6 +300,14 @@ const ProductManagement = () => {
                     </h1>
                     <p className="ds-description mt-0.5">Track your items, prices, and how many are left in stock.</p>
                 </div>
+                <button
+                    type="button"
+                    onClick={() => openModal()}
+                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-white shadow-sm hover:bg-slate-800"
+                >
+                    <HiOutlinePlus className="h-4 w-4" />
+                    Add Product
+                </button>
             </div>
 
             {/* Quick Stats */}
@@ -543,12 +556,12 @@ const ProductManagement = () => {
                                     </div>
                                     <div>
                                         <h3 className="admin-h3">
-                                            Edit Product
+                                            {editingItem ? 'Edit Product' : 'Create Product'}
                                         </h3>
                                         <div className="flex items-center space-x-2 mt-0.5">
                                             <Badge variant="primary" className="text-[7px] font-bold uppercase tracking-widest px-1">SYSTEM</Badge>
                                             <HiOutlineChevronRight className="h-2.5 w-2.5 text-slate-300" />
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{formData.sku || 'PENDING SKU'}</span>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{formData.sku || (editingItem ? 'PENDING SKU' : 'NEW PRODUCT')}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -934,7 +947,7 @@ const ProductManagement = () => {
                                     disabled={isSaving}
                                     className="bg-slate-900 text-white px-10 py-2.5 rounded-xl text-xs font-bold shadow-xl hover:-translate-y-0.5 transition-all disabled:opacity-50"
                                 >
-                                    {isSaving ? 'SAVING...' : 'SAVE CHANGES'}
+                                    {isSaving ? 'SAVING...' : (editingItem ? 'SAVE CHANGES' : 'CREATE PRODUCT')}
                                 </button>
                             </div>
                         </motion.div>

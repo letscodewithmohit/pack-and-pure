@@ -27,6 +27,25 @@ const purchaseRequestItemSchema = new mongoose.Schema(
       min: 0,
       default: 0,
     },
+    selectedSellerProductId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+    },
+    vendorUnitCost: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    vendorQuotedPrice: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    pricingStrategy: {
+      type: String,
+      trim: true,
+      default: "",
+    },
   },
   { _id: false },
 );
@@ -97,6 +116,7 @@ const purchaseRequestSchema = new mongoose.Schema(
       notes: String,
     },
     pickupOtpHash: String,
+    pickupOtpCode: String,
     pickupOtpExpiresAt: Date,
     pickupOtpVerifiedAt: Date,
     pickupProof: {

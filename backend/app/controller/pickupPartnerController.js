@@ -314,6 +314,11 @@ export const getMyPickupAssignments = async (req, res) => {
         qty: Number(i.shortageQty || i.requiredQty || 0),
       })),
       pickupOtpRequired: row.status === "pickup_assigned",
+      pickupOtp:
+        row.status === "pickup_assigned" &&
+        (!row.pickupOtpExpiresAt || new Date(row.pickupOtpExpiresAt) > new Date())
+          ? String(row.pickupOtpCode || "")
+          : "",
       pickupOtpExpiresAt: row.pickupOtpExpiresAt || null,
       notes: row.notes || "",
       eta: row.eta || null,
@@ -369,6 +374,9 @@ export const markAssignmentPicked = async (req, res) => {
     }
 
     pr.status = "picked";
+    pr.pickupOtpCode = undefined;
+    pr.pickupOtpHash = undefined;
+    pr.pickupOtpExpiresAt = undefined;
     pr.pickupOtpVerifiedAt = new Date();
     pr.pickupProof = {
       pickedAt: new Date(),

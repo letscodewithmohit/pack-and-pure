@@ -73,8 +73,24 @@ const ProcurementRequests = () => {
 
   useEffect(() => {
     fetchRows();
+    const timer = setInterval(() => {
+      fetchRows();
+    }, 10000);
+    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
+
+  useEffect(() => {
+    setOtpMap((prev) => {
+      const next = { ...prev };
+      for (const row of rows) {
+        if (!next[row._id] && row.pickupOtp) {
+          next[row._id] = String(row.pickupOtp);
+        }
+      }
+      return next;
+    });
+  }, [rows]);
 
   const stats = useMemo(() => {
     const total = rows.length;
@@ -261,7 +277,10 @@ const ProcurementRequests = () => {
                     <Input
                       value={otpMap[row._id] || ""}
                       onChange={(e) =>
-                        setOtpMap((prev) => ({ ...prev, [row._id]: e.target.value }))
+                        setOtpMap((prev) => ({
+                          ...prev,
+                          [row._id]: e.target.value.replace(/\D/g, "").slice(0, 6),
+                        }))
                       }
                       placeholder="Pickup OTP"
                     />
@@ -285,6 +304,11 @@ const ProcurementRequests = () => {
                     </Button>
                   </div>
                 </div>
+                {row.status === "pickup_assigned" && row.pickupOtp ? (
+                  <p className="mt-2 text-xs font-semibold text-slate-600">
+                    Current Pickup OTP: {row.pickupOtp}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>

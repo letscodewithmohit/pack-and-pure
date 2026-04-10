@@ -75,10 +75,18 @@ const productSchema = new mongoose.Schema(
             ref: "Category",
             required: true,
         },
+        ownerType: {
+            type: String,
+            enum: ["seller", "admin"],
+            default: "seller",
+        },
         sellerId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Seller",
-            required: true,
+            default: null,
+            required: function () {
+                return this.ownerType !== "admin";
+            },
         },
         status: {
             type: String,
@@ -108,6 +116,7 @@ productSchema.index({ headerId: 1, status: 1 });
 productSchema.index({ categoryId: 1, status: 1 });
 productSchema.index({ subcategoryId: 1, status: 1 });
 productSchema.index({ sellerId: 1, status: 1 });
+productSchema.index({ ownerType: 1, status: 1, createdAt: -1 });
 productSchema.index({ name: "text", tags: "text" }); // For better search if regex is too slow
 
 export default mongoose.model("Product", productSchema);

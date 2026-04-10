@@ -200,7 +200,7 @@ export const getProducts = async (req, res) => {
 
     const products = await Product.find(query)
       .select(
-        "name slug price salePrice stock brand weight mainImage headerId categoryId subcategoryId sellerId status isFeatured createdAt",
+        "name slug price salePrice stock brand weight mainImage headerId categoryId subcategoryId sellerId ownerType status isFeatured createdAt",
       )
       .populate("headerId", "name")
       .populate("categoryId", "name")
@@ -215,22 +215,39 @@ export const getProducts = async (req, res) => {
       productId: { $in: products.map((p) => p._id) },
       hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB",
     })
-      .select("productId availableQty")
+      .select("productId availableQty sellPrice")
       .lean();
-    const hubQtyMap = new Map(
-      hubRowsForResult.map((r) => [String(r.productId), Number(r.availableQty || 0)]),
+    const hubMap = new Map(
+      hubRowsForResult.map((r) => [
+        String(r.productId),
+        {
+          availableQty: Number(r.availableQty || 0),
+          sellPrice: Number(r.sellPrice || 0),
+        },
+      ]),
     );
     const sellerSet = new Set((finalSellerIdsForScope || []).map(String));
 
     const productsWithSource = products.map((p) => {
-      const hubQty = Number(hubQtyMap.get(String(p._id)) || 0);
+      const hubRow = hubMap.get(String(p._id)) || { availableQty: 0, sellPrice: 0 };
+      const hubQty = Number(hubRow.availableQty || 0);
+      const hubSellPrice = Number(hubRow.sellPrice || 0);
       const sellerVisible = sellerSet.has(String(p.sellerId?._id || p.sellerId));
       let fulfillmentSource = "seller";
       if (hubQty > 0 && sellerVisible) fulfillmentSource = "hybrid";
       else if (hubQty > 0) fulfillmentSource = "hub";
+      const salePrice = Number(p.salePrice || 0);
+      const catalogPrice = Number(p.price || 0);
+      const effectiveCatalogPrice =
+        salePrice > 0 && salePrice < catalogPrice ? salePrice : catalogPrice;
+      const effectivePrice = hubQty > 0 && hubSellPrice > 0 ? hubSellPrice : effectiveCatalogPrice;
 
       return {
         ...p,
+        baseCatalogPrice: catalogPrice,
+        hubSellPrice,
+        effectivePrice,
+        price: effectivePrice,
         availableQtyHub: hubQty,
         availableQtySeller: Number(p.stock || 0),
         fulfillmentSource,
@@ -272,7 +289,7 @@ export const getSellerProducts = async (req, res) => {
 
     const products = await Product.find(query)
       .select(
-        "name slug price salePrice stock brand weight mainImage headerId categoryId subcategoryId sellerId status isFeatured createdAt",
+        "name slug price salePrice stock brand weight mainImage headerId categoryId subcategoryId sellerId ownerType status isFeatured createdAt",
       )
       .populate("headerId", "name")
       .populate("categoryId", "name")
@@ -303,9 +320,19 @@ export const getSellerProducts = async (req, res) => {
 export const createProduct = async (req, res) => {
   try {
     const productData = { ...req.body };
-    productData.sellerId = req.user.id;
-    // Seller-created products require admin approval before going live.
-    productData.status = "pending_approval";
+    const role = String(req.user?.role || "").toLowerCase();
+
+    if (role === "admin") {
+      // Admin can publish into admin catalog directly.
+      productData.ownerType = "admin";
+      productData.sellerId = null;
+      productData.status = productData.status || "active";
+    } else {
+      productData.ownerType = "seller";
+      productData.sellerId = req.user.id;
+      // Seller-created products require admin approval before going live.
+      productData.status = "pending_approval";
+    }
 
     // Always resolve to a unique slug/SKU to avoid approval-time duplicate failures.
     const desiredSlug = normalizeOptionalString(productData.slug) || productData.name;
@@ -367,6 +394,7 @@ export const updateProduct = async (req, res) => {
     const sellerId = req.user.id;
     const role = req.user.role;
     const productData = { ...req.body };
+    delete productData.ownerType;
 
     // Admin bypasses sellerId check
     const query = role === "admin" ? { _id: id } : { _id: id, sellerId };
@@ -379,6 +407,7 @@ export const updateProduct = async (req, res) => {
     // Sellers cannot self-publish updates; any seller-side change re-enters approval queue.
     if (role !== "admin") {
       delete productData.status;
+      delete productData.sellerId;
       productData.status = "pending_approval";
     }
 

@@ -91,6 +91,13 @@ const PurchaseRequestsPage = () => {
     })();
   }, []);
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchRows();
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
   const openAssign = (row) => {
     const firstPartnerId =
       pickupPartners.length > 0 ? String(pickupPartners[0]?._id || "") : "";
@@ -109,12 +116,17 @@ const PurchaseRequestsPage = () => {
     }
 
     try {
-      await adminApi.assignPurchasePickupPartner(currentRow._id, {
+      const res = await adminApi.assignPurchasePickupPartner(currentRow._id, {
         pickupPartnerId,
       });
+      const assignedOtp = String(res?.data?.result?.pickupOtp || "").trim();
 
       setAssignOpen(false);
-      setInfoMessage(`Pickup partner assigned successfully.`);
+      setInfoMessage(
+        assignedOtp
+          ? `Pickup partner assigned successfully. Pickup OTP: ${assignedOtp}`
+          : "Pickup partner assigned successfully.",
+      );
       setInfoOpen(true);
       await fetchRows();
     } catch (error) {
@@ -203,9 +215,17 @@ const PurchaseRequestsPage = () => {
         ]}
         rows={rows}
         statusColumn="status"
-        renderActions={(row) => (
-          <>
-            {!row.vendorId ? (
+        renderActions={(row) => {
+          const st = labelToStatus(row.status);
+          const isTerminal = ["verified", "closed", "cancelled"].includes(st);
+          const canAssignVendor = !row.vendorId && !isTerminal;
+          const canAssignPickup = ["created", "vendor_confirmed", "pickup_assigned"].includes(st);
+          const canReceive = ["pickup_assigned", "picked", "hub_delivered"].includes(st);
+          const canVerify = st === "received_at_hub";
+          const canCancel = !isTerminal;
+          return (
+            <>
+            {canAssignVendor ? (
               <button
                 type="button"
                 onClick={() => openAssignVendor(row)}
@@ -216,29 +236,34 @@ const PurchaseRequestsPage = () => {
             <button
               type="button"
               onClick={() => openAssign(row)}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+              disabled={!canAssignPickup}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
               Assign Pickup
             </button>
             <button
               type="button"
               onClick={() => markReceivedAtHub(row)}
-              className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700">
+              disabled={!canReceive}
+              className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50">
               Receive at Hub
             </button>
             <button
               type="button"
               onClick={() => markVerified(row)}
-              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">
+              disabled={!canVerify}
+              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">
               Verify
             </button>
             <button
               type="button"
               onClick={() => openCancel(row)}
-              className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700">
+              disabled={!canCancel}
+              className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50">
               Cancel
             </button>
           </>
-        )}
+          );
+        }}
       />
 
       <SupplyFormModal

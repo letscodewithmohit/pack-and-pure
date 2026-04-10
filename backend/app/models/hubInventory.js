@@ -39,6 +39,34 @@ const hubInventorySchema = new mongoose.Schema(
       enum: ["healthy", "low_stock", "out_of_stock"],
       default: "healthy",
     },
+    lastPurchaseCost: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    avgPurchaseCost: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    marginType: {
+      type: String,
+      enum: ["percent", "flat"],
+      default: "percent",
+    },
+    marginValue: {
+      type: Number,
+      default: 15,
+      min: 0,
+    },
+    sellPrice: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    priceUpdatedAt: {
+      type: Date,
+    },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       refPath: "updatedByModel",

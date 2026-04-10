@@ -33,12 +33,37 @@ const PICKUP_OTP_EXPIRY_MINUTES = Math.max(
   1,
   Number(process.env.PICKUP_OTP_EXPIRY_MINUTES || 30),
 );
+const PICKUP_OTP_MOCK_MODE =
+  String(process.env.PICKUP_OTP_MOCK_MODE || "").toLowerCase() === "true";
+const PICKUP_OTP_MOCK_VALUE = String(process.env.PICKUP_OTP_MOCK_VALUE || "1234");
+const DEFAULT_MARGIN_TYPE = String(
+  process.env.DEFAULT_PROCUREMENT_MARGIN_TYPE || "percent",
+).toLowerCase() === "flat"
+  ? "flat"
+  : "percent";
+const DEFAULT_MARGIN_VALUE = Math.max(
+  0,
+  Number(process.env.DEFAULT_PROCUREMENT_MARGIN_VALUE || 15),
+);
+const toMoney = (value) => Math.max(0, Number(Number(value || 0).toFixed(2)));
+const resolveMarginType = (value) =>
+  String(value || "").toLowerCase() === "flat" ? "flat" : "percent";
+const resolveMarginValue = (value) => Math.max(0, Number(value || 0));
+const computeSellPrice = (cost, marginType, marginValue) => {
+  const base = Math.max(0, Number(cost || 0));
+  if (resolveMarginType(marginType) === "flat") {
+    return toMoney(base + resolveMarginValue(marginValue));
+  }
+  return toMoney(base + (base * resolveMarginValue(marginValue)) / 100);
+};
 
 const hashPickupOtp = (otp) =>
   crypto.createHash("sha256").update(String(otp)).digest("hex");
 
-const generatePickupOtp = () =>
-  String(Math.floor(1000 + Math.random() * 9000));
+const generatePickupOtp = () => {
+  if (PICKUP_OTP_MOCK_MODE) return PICKUP_OTP_MOCK_VALUE;
+  return String(Math.floor(1000 + Math.random() * 9000));
+};
 
 const generateRequestId = () =>
   `PR-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
@@ -90,6 +115,7 @@ const assignPickupToRequest = async (doc, partner) => {
   doc.pickupPartnerId = partner._id;
   doc.pickupPartnerName = String(partner.name || "").trim();
   const otp = generatePickupOtp();
+  doc.pickupOtpCode = otp;
   doc.pickupOtpHash = hashPickupOtp(otp);
   doc.pickupOtpExpiresAt = new Date(
     Date.now() + PICKUP_OTP_EXPIRY_MINUTES * 60 * 1000,
@@ -126,6 +152,7 @@ const mapRow = (reqDoc) => {
         ? `${reqDoc.items.length} items`
         : "Product"),
     quantity: Number(item?.shortageQty || item?.requiredQty || reqDoc.quantity || 0),
+    unitCost: Number(item?.vendorUnitCost || 0),
     status: reqDoc.status,
     pickupPartnerId: reqDoc.pickupPartnerId || null,
     pickupPartnerName: reqDoc.pickupPartnerName || "",
@@ -158,6 +185,11 @@ const mapSellerRow = (reqDoc) => ({
       }
     : null,
   pickupAssigned: Boolean(reqDoc.pickupPartnerId),
+  pickupOtp:
+    String(reqDoc.status) === "pickup_assigned" &&
+    (!reqDoc.pickupOtpExpiresAt || new Date(reqDoc.pickupOtpExpiresAt) > new Date())
+      ? String(reqDoc.pickupOtpCode || "")
+      : "",
   pickupOtpExpiresAt: reqDoc.pickupOtpExpiresAt || null,
   items: (reqDoc.items || []).map((item) => ({
     productId: item.productId?._id || item.productId || null,
@@ -165,6 +197,7 @@ const mapSellerRow = (reqDoc) => ({
     requiredQty: Number(item.requiredQty || 0),
     shortageQty: Number(item.shortageQty || 0),
     committedQty: Number(item.committedQty || 0),
+    unitCost: Number(item.vendorUnitCost || 0),
   })),
   notes: reqDoc.notes || "",
   exceptionReason: reqDoc.exceptionReason || "",
@@ -232,7 +265,7 @@ export const createManualPurchaseRequest = async (req, res) => {
 
     const [vendor, product] = await Promise.all([
       Seller.findById(vendorId).select("_id shopName name"),
-      Product.findById(productId).select("_id name status"),
+      Product.findById(productId).select("_id name status price salePrice"),
     ]);
 
     if (!vendor) return handleResponse(res, 404, "Vendor not found");
@@ -248,6 +281,13 @@ export const createManualPurchaseRequest = async (req, res) => {
       retries += 1;
     }
 
+    const unitCost = toMoney(
+      Number(product?.salePrice || 0) > 0 &&
+        Number(product?.salePrice || 0) < Number(product?.price || 0)
+        ? product.salePrice
+        : product.price,
+    );
+
     const doc = await PurchaseRequest.create({
       requestId,
       orderId: null,
@@ -259,6 +299,9 @@ export const createManualPurchaseRequest = async (req, res) => {
           requiredQty: qty,
           availableQtyAtHub: 0,
           shortageQty: qty,
+          vendorUnitCost: unitCost,
+          vendorQuotedPrice: unitCost,
+          pricingStrategy: "manual_admin_request",
         },
       ],
       status: "created",
@@ -327,6 +370,10 @@ export const assignPickupPartner = async (req, res) => {
     } else {
       doc.pickupPartnerId = null;
       doc.pickupPartnerName = String(pickupPartnerName || "").trim();
+      doc.pickupOtpCode = undefined;
+      doc.pickupOtpHash = undefined;
+      doc.pickupOtpExpiresAt = undefined;
+      doc.pickupOtpVerifiedAt = undefined;
       doc.status = "vendor_confirmed";
       await doc.save();
       return handleResponse(res, 200, "Pickup partner assignment cleared", doc);
@@ -392,6 +439,10 @@ export const receiveAtHub = async (req, res) => {
       );
       const damagedQty = Math.max(0, Number(incoming.damagedQty || 0));
       const acceptedQty = Math.max(0, receivedQty - damagedQty);
+      const fallbackCost = toMoney(Number(line.vendorUnitCost || 0));
+      const incomingCost = toMoney(
+        incoming.purchaseUnitCost !== undefined ? incoming.purchaseUnitCost : fallbackCost,
+      );
 
       const hubRow = await HubInventory.findOne({
         hubId: pr.hubId || DEFAULT_HUB_ID,
@@ -399,18 +450,44 @@ export const receiveAtHub = async (req, res) => {
       });
 
       if (hubRow) {
+        const prevQty = Math.max(0, Number(hubRow.availableQty || 0));
+        const prevAvgCost = Math.max(0, Number(hubRow.avgPurchaseCost || hubRow.lastPurchaseCost || 0));
+        const nextQty = prevQty + acceptedQty;
+        const weightedAvgCost =
+          nextQty > 0 ? toMoney((prevAvgCost * prevQty + incomingCost * acceptedQty) / nextQty) : 0;
+        const marginType = resolveMarginType(hubRow.marginType || DEFAULT_MARGIN_TYPE);
+        const marginValue = resolveMarginValue(
+          hubRow.marginValue !== undefined ? hubRow.marginValue : DEFAULT_MARGIN_VALUE,
+        );
+        const sellPrice = computeSellPrice(weightedAvgCost || incomingCost, marginType, marginValue);
+
         hubRow.availableQty = Math.max(0, Number(hubRow.availableQty || 0) + acceptedQty);
+        hubRow.lastPurchaseCost = incomingCost;
+        hubRow.avgPurchaseCost = weightedAvgCost;
+        hubRow.marginType = marginType;
+        hubRow.marginValue = marginValue;
+        hubRow.sellPrice = sellPrice;
+        hubRow.priceUpdatedAt = new Date();
         if (hubRow.availableQty <= 0) hubRow.status = "out_of_stock";
         else if (hubRow.availableQty <= Number(hubRow.reorderLevel || 0))
           hubRow.status = "low_stock";
         else hubRow.status = "healthy";
         await hubRow.save();
       } else {
+        const marginType = resolveMarginType(DEFAULT_MARGIN_TYPE);
+        const marginValue = resolveMarginValue(DEFAULT_MARGIN_VALUE);
+        const sellPrice = computeSellPrice(incomingCost, marginType, marginValue);
         await HubInventory.create({
           hubId: pr.hubId || DEFAULT_HUB_ID,
           productId,
           availableQty: acceptedQty,
           reorderLevel: 10,
+          lastPurchaseCost: incomingCost,
+          avgPurchaseCost: incomingCost,
+          marginType,
+          marginValue,
+          sellPrice,
+          priceUpdatedAt: new Date(),
           status: acceptedQty > 0 ? "healthy" : "out_of_stock",
         });
       }
@@ -420,6 +497,8 @@ export const receiveAtHub = async (req, res) => {
         expectedQty,
         receivedQty,
         damagedQty,
+        purchaseUnitCost: incomingCost,
+        acceptedQty,
         qualityStatus: incoming.qualityStatus || "ok",
       });
     }

@@ -3,6 +3,15 @@ import Product from "../models/product.js";
 import PurchaseRequest from "../models/purchaseRequest.js";
 
 const HUB_ID = process.env.DEFAULT_HUB_ID || "MAIN_HUB";
+const DEFAULT_PROCUREMENT_MARGIN_TYPE = String(
+  process.env.DEFAULT_PROCUREMENT_MARGIN_TYPE || "percent",
+).toLowerCase() === "flat"
+  ? "flat"
+  : "percent";
+const DEFAULT_PROCUREMENT_MARGIN_VALUE = Math.max(
+  0,
+  Number(process.env.DEFAULT_PROCUREMENT_MARGIN_VALUE || 15),
+);
 
 const buildRequestId = () =>
   `PR-${Date.now()}-${Math.floor(Math.random() * 1000)
@@ -19,7 +28,9 @@ export const planHubFulfillment = async (orderItems, hubId = HUB_ID) => {
   const productIds = orderItems.map((item) => String(item.product));
   const [inventoryRows, products] = await Promise.all([
     HubInventory.find({ hubId, productId: { $in: productIds } }).lean(),
-    Product.find({ _id: { $in: productIds } }).select("_id sellerId").lean(),
+    Product.find({ _id: { $in: productIds } })
+      .select("_id sellerId sku name headerId categoryId subcategoryId ownerType price salePrice")
+      .lean(),
   ]);
 
   const invMap = new Map(
@@ -28,6 +39,7 @@ export const planHubFulfillment = async (orderItems, hubId = HUB_ID) => {
   const sellerMap = new Map(
     products.map((p) => [String(p._id), p?.sellerId ? String(p.sellerId) : null]),
   );
+  const productMap = new Map(products.map((p) => [String(p._id), p]));
 
   const shortages = [];
   const allocations = [];
@@ -46,6 +58,7 @@ export const planHubFulfillment = async (orderItems, hubId = HUB_ID) => {
         availableQtyAtHub: availableQty,
         shortageQty,
         vendorId: sellerMap.get(productId) || null,
+        baseProduct: productMap.get(productId) || null,
       });
     }
   }
@@ -104,26 +117,139 @@ export const reserveHubInventory = async (allocations, hubId = HUB_ID) => {
  * Create procurement requests grouped by vendor for shortage items.
  */
 export const createAutoPurchaseRequests = async ({ order, shortages, hubId = HUB_ID }) => {
+  const normalizeMoney = (value) => Math.max(0, Number(Number(value || 0).toFixed(2)));
+  const effectiveCatalogPrice = (row) => {
+    const sale = Number(row?.salePrice || 0);
+    const base = Number(row?.price || 0);
+    return sale > 0 && sale < base ? sale : base;
+  };
+  const normalizeText = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase();
+  const sameCategory = (candidate, base) =>
+    String(candidate?.headerId || "") === String(base?.headerId || "") &&
+    String(candidate?.categoryId || "") === String(base?.categoryId || "") &&
+    String(candidate?.subcategoryId || "") === String(base?.subcategoryId || "");
+
+  const selectCheapestSeller = async (baseProduct, shortageQty) => {
+    if (!baseProduct) return null;
+    const qty = Math.max(1, Number(shortageQty || 0));
+    const matchOr = [];
+    if (String(baseProduct.sku || "").trim()) {
+      matchOr.push({ sku: String(baseProduct.sku).trim() });
+    }
+    if (String(baseProduct.name || "").trim()) {
+      matchOr.push({ name: String(baseProduct.name).trim() });
+    }
+    if (baseProduct.headerId && baseProduct.categoryId && baseProduct.subcategoryId) {
+      matchOr.push({
+        headerId: baseProduct.headerId,
+        categoryId: baseProduct.categoryId,
+        subcategoryId: baseProduct.subcategoryId,
+      });
+    }
+    if (!matchOr.length) return null;
+
+    const candidates = await Product.find({
+      ownerType: "seller",
+      status: "active",
+      sellerId: { $ne: null },
+      stock: { $gte: qty },
+      $or: matchOr,
+    })
+      .select("_id sellerId stock sku name headerId categoryId subcategoryId price salePrice")
+      .lean();
+
+    if (!candidates.length) return null;
+
+    const scored = candidates.map((row) => {
+      const unitCost = normalizeMoney(effectiveCatalogPrice(row));
+      const skuMatch =
+        String(baseProduct.sku || "").trim() &&
+        String(row.sku || "").trim() === String(baseProduct.sku || "").trim();
+      const nameMatch =
+        normalizeText(row.name) && normalizeText(row.name) === normalizeText(baseProduct.name);
+      const categoryMatch = sameCategory(row, baseProduct);
+      let qualityRank = 4;
+      if (skuMatch) qualityRank = 1;
+      else if (nameMatch && categoryMatch) qualityRank = 2;
+      else if (categoryMatch) qualityRank = 3;
+      return {
+        ...row,
+        unitCost,
+        qualityRank,
+      };
+    });
+
+    scored.sort((a, b) => {
+      if (a.qualityRank !== b.qualityRank) return a.qualityRank - b.qualityRank;
+      if (a.unitCost !== b.unitCost) return a.unitCost - b.unitCost;
+      return Number(b.stock || 0) - Number(a.stock || 0);
+    });
+
+    const best = scored[0];
+    if (!best) return null;
+    return {
+      vendorId: best.sellerId ? String(best.sellerId) : null,
+      selectedSellerProductId: best._id ? String(best._id) : null,
+      vendorUnitCost: best.unitCost,
+      vendorQuotedPrice: normalizeMoney(effectiveCatalogPrice(best)),
+      pricingStrategy:
+        best.qualityRank === 1
+          ? "cheapest_same_sku"
+          : best.qualityRank === 2
+            ? "cheapest_name_category_match"
+            : "cheapest_category_match",
+    };
+  };
+
   const shortageProductIds = shortages
     .map((item) => String(item.productId || ""))
     .filter(Boolean);
 
   const fallbackProducts = shortageProductIds.length
     ? await Product.find({ _id: { $in: shortageProductIds } })
-        .select("_id sellerId")
+        .select(
+          "_id sellerId sku name headerId categoryId subcategoryId ownerType stock price salePrice",
+        )
         .lean()
     : [];
-  const fallbackSellerMap = new Map(
-    fallbackProducts.map((p) => [String(p._id), p?.sellerId ? String(p.sellerId) : null]),
-  );
+  const fallbackProductMap = new Map(fallbackProducts.map((p) => [String(p._id), p]));
 
-  const enrichedShortages = shortages.map((item) => {
-    if (item.vendorId) return item;
-    return {
+  const enrichedShortages = [];
+  for (const item of shortages) {
+    const productId = String(item.productId || "");
+    const baseProduct = item.baseProduct || fallbackProductMap.get(productId) || null;
+    let selected = null;
+    if (item.vendorId && Number(baseProduct?.stock || 0) >= Number(item.shortageQty || 0)) {
+      const selfCost = normalizeMoney(effectiveCatalogPrice(baseProduct));
+      selected = {
+        vendorId: String(item.vendorId),
+        selectedSellerProductId:
+          baseProduct?.ownerType === "seller" ? String(baseProduct?._id || "") : null,
+        vendorUnitCost: selfCost,
+        vendorQuotedPrice: selfCost,
+        pricingStrategy: "direct_vendor_mapping",
+      };
+    } else {
+      // eslint-disable-next-line no-await-in-loop
+      selected = await selectCheapestSeller(baseProduct, item.shortageQty);
+    }
+
+    enrichedShortages.push({
       ...item,
-      vendorId: fallbackSellerMap.get(String(item.productId)) || null,
-    };
-  });
+      vendorId: selected?.vendorId || null,
+      selectedSellerProductId: selected?.selectedSellerProductId || null,
+      vendorUnitCost: normalizeMoney(selected?.vendorUnitCost || effectiveCatalogPrice(baseProduct)),
+      vendorQuotedPrice: normalizeMoney(
+        selected?.vendorQuotedPrice || effectiveCatalogPrice(baseProduct),
+      ),
+      pricingStrategy: selected?.pricingStrategy || "fallback_catalog_price",
+      marginType: DEFAULT_PROCUREMENT_MARGIN_TYPE,
+      marginValue: DEFAULT_PROCUREMENT_MARGIN_VALUE,
+    });
+  }
 
   const grouped = new Map();
   for (const item of enrichedShortages) {
@@ -146,6 +272,11 @@ export const createAutoPurchaseRequests = async ({ order, shortages, hubId = HUB
         requiredQty: i.requiredQty,
         availableQtyAtHub: i.availableQtyAtHub,
         shortageQty: i.shortageQty,
+        committedQty: 0,
+        selectedSellerProductId: i.selectedSellerProductId || undefined,
+        vendorUnitCost: i.vendorUnitCost || 0,
+        vendorQuotedPrice: i.vendorQuotedPrice || 0,
+        pricingStrategy: i.pricingStrategy || "",
       })),
       notes:
         vendorId === null

@@ -40,7 +40,23 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchAssignments();
+    const timer = setInterval(() => {
+      fetchAssignments();
+    }, 10000);
+    return () => clearInterval(timer);
   }, [statusFilter]);
+
+  useEffect(() => {
+    setOtpById((prev) => {
+      const next = { ...prev };
+      for (const row of rows) {
+        if (!next[row._id] && row.pickupOtp) {
+          next[row._id] = String(row.pickupOtp);
+        }
+      }
+      return next;
+    });
+  }, [rows]);
 
   const listStats = useMemo(() => {
     const assigned = rows.filter((r) => r.status === "pickup_assigned").length;
@@ -195,6 +211,11 @@ const Dashboard = () => {
                       <td className="px-4 py-3 text-sm">
                         {row.status === "pickup_assigned" ? (
                           <div className="space-y-2">
+                            {row.pickupOtp ? (
+                              <p className="text-xs font-semibold text-slate-600">
+                                Assigned OTP: {row.pickupOtp}
+                              </p>
+                            ) : null}
                             <input
                               type="text"
                               placeholder="Pickup OTP"
@@ -244,4 +265,3 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
-

@@ -26,7 +26,7 @@ router.get("/:id", getProductById);
 router.post(
     "/",
     verifyToken,
-    allowRoles("seller"),
+    allowRoles("seller", "admin"),
     upload.fields([
         { name: 'mainImage', maxCount: 1 },
         { name: 'galleryImages', maxCount: 5 }
