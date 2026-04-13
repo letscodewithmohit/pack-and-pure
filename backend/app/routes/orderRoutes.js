@@ -32,6 +32,7 @@ const router = express.Router();
 
 // Customer routes
 router.post("/place", verifyToken, placeOrder);
+router.post("/create", verifyToken, placeOrder);
 router.get("/my-orders", verifyToken, getMyOrders);
 router.get("/details/:orderId", verifyToken, getOrderDetails);
 router.put("/cancel/:orderId", verifyToken, cancelOrder);

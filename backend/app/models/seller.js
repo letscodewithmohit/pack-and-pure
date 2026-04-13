@@ -49,6 +49,10 @@ const sellerSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    fcmTokens: {
+      type: [String],
+      default: [],
+    },
     location: {
       type: {
         type: String,

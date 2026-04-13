@@ -73,7 +73,7 @@ async function ensureUniqueSku(inputSku, excludeId = null) {
 
 /* ===============================
    GET ALL PRODUCTS (Public/Admin)
-================================ */
+ ================================ */
 export const getProducts = async (req, res) => {
   try {
     const {
@@ -84,6 +84,7 @@ export const getProducts = async (req, res) => {
       status,
       sellerId,
       featured,
+      ownerType,
       categoryId,
       subcategoryId,
       headerId,
@@ -92,9 +93,9 @@ export const getProducts = async (req, res) => {
       lat,
       lng,
     } = req.query;
-    const enforceRadius = isCustomerVisibilityRequest(req);
+    const enforceHubOnly = isCustomerVisibilityRequest(req);
 
-    const query = {};
+    const query = ownerType ? { ownerType } : {};
     if (search) {
       query.name = { $regex: search, $options: "i" };
     }
@@ -110,59 +111,40 @@ export const getProducts = async (req, res) => {
 
     const requestedSellerIds = parseSellerIdFilters({ sellerId, sellerIds });
     const coords = parseCustomerCoordinates({ lat, lng });
-    const shouldApplyLocationFilter = enforceRadius || coords.valid;
-    let finalSellerIdsForScope = [];
-    let hubProductIdsForScope = [];
-    if (enforceRadius && !coords.valid) {
+    if (enforceHubOnly) {
+
+      if (!coords.valid) {
       return handleResponse(
         res,
         400,
         "lat and lng are required for customer product visibility",
       );
     }
-    if (shouldApplyLocationFilter) {
-      const [nearbySellerIds, hubRows] = await Promise.all([
-        getNearbySellerIdsForCustomer(coords.lat, coords.lng),
-        HubInventory.find({
-          hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB",
-          availableQty: { $gt: 0 },
-        })
-          .select("productId availableQty")
-          .lean(),
-      ]);
+      const hubRows = await HubInventory.find({
+        hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB",
+      })
+        .select("productId")
+        .lean();
 
-      const nearbySet = new Set((nearbySellerIds || []).map(String));
-      finalSellerIdsForScope = requestedSellerIds.length
-        ? requestedSellerIds.filter((id) => nearbySet.has(String(id)))
-        : nearbySellerIds || [];
-
-      hubProductIdsForScope = (hubRows || [])
+      const hubProductIds = (hubRows || [])
         .map((row) => row?.productId && String(row.productId))
         .filter(Boolean);
 
-      const visibilityOr = [];
-      if (finalSellerIdsForScope.length) {
-        visibilityOr.push({ sellerId: { $in: finalSellerIdsForScope } });
-      }
-      if (hubProductIdsForScope.length) {
-        visibilityOr.push({ _id: { $in: hubProductIdsForScope } });
-      }
-
-      if (!visibilityOr.length) {
-        return handleResponse(res, 200, "No products available in your area", {
-          items: [],
-          page: 1,
-          limit: 24,
-          total: 0,
-          totalPages: 1,
-        });
-      }
-
-      query.$or = visibilityOr;
+      // We still want to show products even if they aren't in HubInventory yet, 
+      // as long as they are 'admin' products (Master Catalog).
+      // This ensures that new catalog entries are visible for procurement.
+      query.$or = [
+        { _id: { $in: hubProductIds } },
+        { ownerType: "admin" }
+      ];
+      query.status = "active";
+    } else {
+      if (status) query.status = status;
+      if (sellerId) query.sellerId = sellerId;
     }
 
     // Customer/user app should only see approved active products.
-    if (enforceRadius) {
+    if (enforceHubOnly) {
       query.status = "active";
     } else if (!status && !req.user?.role) {
       query.status = "active";
@@ -226,31 +208,53 @@ export const getProducts = async (req, res) => {
         },
       ]),
     );
-    const sellerSet = new Set((finalSellerIdsForScope || []).map(String));
+
+
+    // --- AGGREGATE SELLER STOCK FOR MASTER PRODUCTS ---
+    const productIds = products.map((p) => p._id);
+    const sellerStockSummary = await Product.aggregate([
+      {
+        $match: {
+          masterProductId: { $in: productIds },
+          status: "active",
+        },
+      },
+      {
+        $group: {
+          _id: "$masterProductId",
+          totalSellerStock: { $sum: "$stock" },
+        },
+      },
+    ]);
+
+    const sellerStockMap = new Map(
+      sellerStockSummary.map((s) => [String(s._id), s.totalSellerStock]),
+    );
 
     const productsWithSource = products.map((p) => {
-      const hubRow = hubMap.get(String(p._id)) || { availableQty: 0, sellPrice: 0 };
+      const pIdStr = String(p._id);
+      const hubRow = hubMap.get(pIdStr) || { availableQty: 0, sellPrice: 0 };
       const hubQty = Number(hubRow.availableQty || 0);
       const hubSellPrice = Number(hubRow.sellPrice || 0);
-      const sellerVisible = sellerSet.has(String(p.sellerId?._id || p.sellerId));
-      let fulfillmentSource = "seller";
-      if (hubQty > 0 && sellerVisible) fulfillmentSource = "hybrid";
-      else if (hubQty > 0) fulfillmentSource = "hub";
+      
+      const mappedSellerStock = sellerStockMap.get(pIdStr) || 0;
+      const totalAvailableQty = hubQty + mappedSellerStock;
+      
       const salePrice = Number(p.salePrice || 0);
       const catalogPrice = Number(p.price || 0);
       const effectiveCatalogPrice =
         salePrice > 0 && salePrice < catalogPrice ? salePrice : catalogPrice;
-      const effectivePrice = hubQty > 0 && hubSellPrice > 0 ? hubSellPrice : effectiveCatalogPrice;
+      
+      const price = hubSellPrice > 0 ? hubSellPrice : effectiveCatalogPrice;
 
       return {
         ...p,
-        baseCatalogPrice: catalogPrice,
+        price,
         hubSellPrice,
-        effectivePrice,
-        price: effectivePrice,
         availableQtyHub: hubQty,
-        availableQtySeller: Number(p.stock || 0),
-        fulfillmentSource,
+        availableQtySeller: mappedSellerStock, 
+        totalAvailableQty, // Sum of Hub + Mapped Sellers
+        fulfillmentSource: hubQty > 0 ? "hub" : totalAvailableQty > 0 ? "procure" : "out_of_stock",
       };
     });
 
@@ -270,7 +274,7 @@ export const getProducts = async (req, res) => {
 
 /* ===============================
    GET SELLER PRODUCTS
-================================ */
+ ================================ */
 export const getSellerProducts = async (req, res) => {
   try {
     const sellerId = req.user.id;
@@ -316,54 +320,40 @@ export const getSellerProducts = async (req, res) => {
 
 /* ===============================
    CREATE PRODUCT
-================================ */
+ ================================ */
 export const createProduct = async (req, res) => {
   try {
     const productData = { ...req.body };
     const role = String(req.user?.role || "").toLowerCase();
 
     if (role === "admin") {
-      // Admin can publish into admin catalog directly.
       productData.ownerType = "admin";
       productData.sellerId = null;
       productData.status = productData.status || "active";
     } else {
       productData.ownerType = "seller";
       productData.sellerId = req.user.id;
-      // Seller-created products require admin approval before going live.
       productData.status = "pending_approval";
     }
 
-    // Always resolve to a unique slug/SKU to avoid approval-time duplicate failures.
-    const desiredSlug = normalizeOptionalString(productData.slug) || productData.name;
-    productData.slug = await ensureUniqueSlug(desiredSlug);
+    // We will generate the final slugs just before creation to avoid duplicate conflicts between Master and Seller entries
+    const initialDesiredSlug = normalizeOptionalString(productData.slug) || productData.name;
     productData.sku = await ensureUniqueSku(productData.sku);
 
-    // Handle Images
     if (req.files) {
-      // Main Image
       if (req.files.mainImage && req.files.mainImage[0]) {
-        productData.mainImage = await uploadToCloudinary(
-          req.files.mainImage[0].buffer,
-          "products",
-        );
+        productData.mainImage = await uploadToCloudinary(req.files.mainImage[0].buffer, "products");
       }
-
-      // Gallery Images
       if (req.files.galleryImages && req.files.galleryImages.length > 0) {
-        const uploadPromises = req.files.galleryImages.map((file) =>
-          uploadToCloudinary(file.buffer, "products"),
-        );
+        const uploadPromises = req.files.galleryImages.map((file) => uploadToCloudinary(file.buffer, "products"));
         productData.galleryImages = await Promise.all(uploadPromises);
       }
     }
 
-    // Handle tags if string
     if (typeof productData.tags === "string") {
       productData.tags = productData.tags.split(",").map((tag) => tag.trim());
     }
 
-    // Handle variants if string (multipart/form-data sends as string)
     if (typeof productData.variants === "string") {
       try {
         productData.variants = JSON.parse(productData.variants);
@@ -372,27 +362,101 @@ export const createProduct = async (req, res) => {
       }
     }
 
-    const product = await Product.create(productData);
-    return handleResponse(res, 201, "Product created successfully", product);
-  } catch (error) {
-    console.error("Create Product Error:", error);
-    if (error.code === 11000) {
-      const key = Object.keys(error.keyPattern || {})[0];
-      const field = key || "Slug or SKU";
-      return handleResponse(res, 400, `${field} already exists`);
+    // --- AUTO CATALOG LOGIC ---
+    if (role !== "admin") {
+      // 1. Double-Check uniqueness by NAME for the same seller (Hard block)
+      const exactNameExists = await Product.findOne({
+        sellerId: req.user.id,
+        name: { $regex: new RegExp(`^${String(productData.name || "").trim()}$`, "i") }
+      });
+      if (exactNameExists) {
+        return handleResponse(res, 400, "You already have a product with this name. Please update existing one.");
+      }
+
+      if (productData.masterProductId === "" || !productData.masterProductId) {
+        delete productData.masterProductId;
+      }
+
+      if (!productData.masterProductId) {
+        const normalizedName = String(productData.name || "").trim();
+        const existingMaster = await Product.findOne({
+          name: { $regex: new RegExp(`^${normalizedName}$`, "i") },
+          ownerType: "admin"
+        });
+
+        if (existingMaster) {
+          productData.masterProductId = existingMaster._id;
+          if (!productData.headerId) productData.headerId = existingMaster.headerId;
+          if (!productData.categoryId) productData.categoryId = existingMaster.categoryId;
+          if (!productData.subcategoryId) productData.subcategoryId = existingMaster.subcategoryId;
+        } else {
+          const masterSlug = await ensureUniqueSlug(productData.slug || productData.name);
+          const masterProduct = await Product.create({
+            name: productData.name,
+            slug: masterSlug,
+            sku: `M-${Date.now().toString().slice(-6)}`,
+            description: productData.description,
+            price: productData.price,
+            salePrice: productData.salePrice,
+            unit: productData.unit || "unit",
+            mainImage: productData.mainImage,
+            galleryImages: productData.galleryImages || [], // Sync all images
+            headerId: productData.headerId,
+            categoryId: productData.categoryId,
+            subcategoryId: productData.subcategoryId,
+            brand: productData.brand,
+            weight: productData.weight,
+            ownerType: "admin",
+            status: "inactive", // Stays inactive until seller product is approved
+            stock: 0, 
+            tags: productData.tags,
+          });
+          productData.masterProductId = masterProduct._id;
+
+          try {
+            await HubInventory.create({
+              hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB",
+              productId: masterProduct._id,
+              availableQty: 0,
+              status: "out_of_stock"
+            });
+          } catch (err) {
+            console.warn("Hub Inventory init failed:", err.message);
+          }
+        }
+      }
+
+      // Seller-Specific Duplicate Check
+      if (productData.masterProductId) {
+        const alreadyExists = await Product.findOne({
+          sellerId: req.user.id,
+          masterProductId: productData.masterProductId
+        });
+        if (alreadyExists) {
+          return handleResponse(res, 400, "You have already listed this product.");
+        }
+      }
     }
+
+    // Generate unique slug for seller product now, after master product (if any) is already in DB
+    productData.slug = await ensureUniqueSlug(initialDesiredSlug);
+
+    const product = await Product.create(productData);
+    return handleResponse(res, 201, "Product created and sent for approval", product);
+  } catch (error) {
+    if (error.code === 11000) return handleResponse(res, 400, "Slug or SKU already exists");
     return handleResponse(res, 500, error.message);
   }
 };
 
 /* ===============================
    UPDATE PRODUCT
-================================ */
+ ================================ */
 export const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
     const sellerId = req.user.id;
-    const role = req.user.role;
+    const role = String(req.user?.role || "").toLowerCase();
     const productData = { ...req.body };
     delete productData.ownerType;
 
@@ -404,11 +468,20 @@ export const updateProduct = async (req, res) => {
       return handleResponse(res, 404, "Product not found or unauthorized");
     }
 
-    // Sellers cannot self-publish updates; any seller-side change re-enters approval queue.
     if (role !== "admin") {
       delete productData.status;
       delete productData.sellerId;
       productData.status = "pending_approval";
+    }
+
+    // Safety check for masterProductId in updates
+    if (productData.masterProductId === "" || productData.masterProductId === "null") {
+      productData.masterProductId = null;
+    } else if (productData.masterProductId && typeof productData.masterProductId === "string") {
+      // If it's a string, ensure it's not empty/invalid
+      if (!productData.masterProductId.trim()) {
+        productData.masterProductId = null;
+      }
     }
 
     if (productData.name !== undefined || productData.slug !== undefined) {
@@ -483,6 +556,34 @@ export const updateProduct = async (req, res) => {
       { new: true, runValidators: true },
     );
 
+    // --- AUTO APPROVAL Logic for Master Product ---
+    // If admin is activating a seller product that is linked to a master product,
+    // the master product should also be active so it shows up on the app.
+    const currentStatus = (productData.status || (req.body && req.body.status) || "").toLowerCase();
+    if (role === "admin" && currentStatus === "active") {
+      let mid = updatedProduct?.masterProductId;
+      
+      // Fallback: If no masterProductId is set, try to find one by name
+      if (!mid) {
+        const matchingMaster = await Product.findOne({
+          name: { $regex: new RegExp(`^${updatedProduct.name}$`, "i") },
+          ownerType: "admin"
+        });
+        if (matchingMaster) mid = matchingMaster._id;
+      }
+      
+      if (mid) {
+        try {
+          await Product.findByIdAndUpdate(mid, { $set: { status: "active" } });
+          console.log(`[updateProduct] SUCCESS: Auto-activated master product ${mid} for seller product ${id}`);
+        } catch (err) {
+          console.warn("[updateProduct] ERROR: Failed to auto-approve master product:", err.message);
+        }
+      } else {
+        console.log(`[updateProduct] INFO: No master product found (by ID or name) for product ${id}.`);
+      }
+    }
+
     return handleResponse(
       res,
       200,
@@ -514,7 +615,7 @@ export const updateProduct = async (req, res) => {
 
 /* ===============================
    DELETE PRODUCT
-================================ */
+ ================================ */
 export const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
@@ -536,7 +637,7 @@ export const deleteProduct = async (req, res) => {
 
 /* ===============================
    GET SINGLE PRODUCT
-================================ */
+ ================================ */
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;

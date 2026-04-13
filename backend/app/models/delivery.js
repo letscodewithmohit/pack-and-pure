@@ -102,7 +102,10 @@ const deliverySchema = new mongoose.Schema(
             type: Date,
             select: false,
         },
-
+        fcmTokens: {
+            type: [String],
+            default: [],
+        },
         lastLogin: Date,
 
         /** Last GPS fix from POST /delivery/location (for radius matching). */

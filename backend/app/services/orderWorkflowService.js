@@ -3,6 +3,7 @@ import Order from "../models/order.js";
 import DeliveryAssignment from "../models/deliveryAssignment.js";
 import OrderOtp from "../models/orderOtp.js";
 import Notification from "../models/notification.js";
+import { createNotification } from "./notificationService.js";
 import Seller from "../models/seller.js";
 import {
   WORKFLOW_STATUS,
@@ -12,6 +13,7 @@ import {
   DEFAULT_DELIVERY_TIMEOUT_MS,
 } from "../constants/orderWorkflow.js";
 import { compensateOrderCancellation } from "./orderCompensation.js";
+import { applyCodCancellationStrike, isCodMethod } from "./orderService.js";
 import {
   sellerTimeoutQueue,
   deliveryTimeoutQueue,
@@ -68,7 +70,7 @@ function deliveryBroadcastPayloadFromOrder(order, extra = {}) {
   };
 }
 const PICKUP_RADIUS_M = () =>
-  parseInt(process.env.PICKUP_RADIUS_METERS || "150", 10);
+  parseInt(process.env.PICKUP_RADIUS_METERS || "1000000", 10);
 const OTP_RADIUS_M = () =>
   parseInt(process.env.DELIVERY_OTP_RADIUS_METERS || "150", 10);
 const OTP_EXPIRY_MS = () =>
@@ -87,10 +89,12 @@ function getHubPickupPoint(order) {
   const lat = parseHubCoordinate("HUB_LOCATION_LAT", "HUB_LAT", "DEFAULT_HUB_LAT");
   const lng = parseHubCoordinate("HUB_LOCATION_LNG", "HUB_LNG", "DEFAULT_HUB_LNG");
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  const address = process.env.HUB_LOCATION_ADDRESS || "Main Hub";
   return {
     lat,
     lng,
-    label: order?.hubId ? `Hub ${order.hubId}` : "Hub",
+    label: address,
   };
 }
 
@@ -558,7 +562,7 @@ export async function deliveryAcceptAtomic(deliveryId, orderId, idempotencyKey) 
   }
 
   if (updated.seller) {
-    await Notification.create({
+    await createNotification({
       recipient: updated.seller,
       recipientModel: "Seller",
       title: "Delivery Partner Assigned",
@@ -567,6 +571,16 @@ export async function deliveryAcceptAtomic(deliveryId, orderId, idempotencyKey) 
       data: { orderId: updated.orderId, mongoOrderId: updated._id },
     });
   }
+
+  // Notify Customer
+  await createNotification({
+    recipient: updated.customer?._id || updated.customer,
+    recipientModel: "Customer",
+    title: "Delivery Partner Assigned",
+    message: `A delivery partner has been assigned to your order #${orderId} and is on the way.`,
+    type: "order",
+    data: { orderId: updated.orderId, mongoOrderId: updated._id },
+  });
 
   await retractDeliveryBroadcastForOrder(updated.orderId, deliveryOid);
 
@@ -615,7 +629,7 @@ export async function processSellerTimeoutJob({ orderId }) {
   emitOrderStatusUpdate(orderId, { workflowStatus: WORKFLOW_STATUS.CANCELLED }, updated.customer);
 
   if (updated.seller) {
-    await Notification.create({
+    await createNotification({
       recipient: updated.seller,
       recipientModel: "Seller",
       title: "Order Timed Out",
@@ -704,7 +718,10 @@ export async function processDeliveryTimeoutJob({ orderId, attempt }) {
   emitOrderStatusUpdate(orderId, { workflowStatus: WORKFLOW_STATUS.CANCELLED }, updated.customer);
 
   if (updated.customer) {
-    await Notification.create({
+    if (isCodMethod(updated.payment?.method)) {
+      await applyCodCancellationStrike(updated.customer?._id || updated.customer);
+    }
+    await createNotification({
       recipient: updated.customer,
       recipientModel: "Customer",
       title: "Order Cancelled",
@@ -752,6 +769,10 @@ export async function customerCancelV2(customerId, orderId, reason) {
     const err = new Error("Unable to cancel");
     err.statusCode = 400;
     throw err;
+  }
+
+  if (isCodMethod(updated.payment?.method)) {
+    await applyCodCancellationStrike(customerId);
   }
 
   await removeSellerTimeoutJob(orderId);

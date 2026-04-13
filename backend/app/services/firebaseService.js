@@ -1,4 +1,4 @@
-import { getFirebaseRealtimeDb } from "../config/firebaseAdmin.js";
+import { getFirebaseAdminApp, getFirebaseRealtimeDb } from "../config/firebaseAdmin.js";
 
 /**
  * RTDB paths — customer reads `deliveryLocations/{orderId}/{deliveryBoyId}`.
@@ -76,6 +76,46 @@ export const writeDeliveryLocation = async (deliveryId, orderId, snapshot) => {
     return { deliveryId, orderId, snapshot: cleanSnapshot };
   } catch (err) {
     console.error("writeDeliveryLocation error:", err.message);
+    return null;
+  }
+};
+
+export const getFirebaseMessaging = () => {
+  const app = getFirebaseAdminApp();
+  if (!app) return null;
+  return app.messaging();
+};
+
+export const sendFcmNotification = async (tokens = [], payload = {}) => {
+  const messaging = getFirebaseMessaging();
+  if (!messaging) {
+    console.warn("[FCM] Firebase Admin messaging not configured");
+    return null;
+  }
+  const filteredTokens = Array.isArray(tokens)
+    ? [...new Set(tokens.filter((t) => typeof t === "string" && t.trim()))]
+    : [];
+  if (!filteredTokens.length) {
+    return null;
+  }
+
+  const message = {
+    tokens: filteredTokens,
+    notification: {
+      title: String(payload.title || payload.notification?.title || "Notification"),
+      body: String(payload.body || payload.notification?.body || "You have a new update."),
+    },
+    data: payload.data || {},
+  };
+
+  try {
+    const response = await messaging.sendMulticast(message);
+    if (response.failureCount > 0) {
+      console.warn("[FCM] Some notifications failed", response.responses);
+    }
+    return response;
+  } catch (err) {
+    console.error("sendFcmNotification error:", err.message);
     return null;
   }
 };

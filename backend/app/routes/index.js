@@ -2,6 +2,7 @@ import customerRoute from "./customerAuth.js";
 import deliveryRoute from "./deliveryAuth.js";
 import adminRoute from "./adminAuth.js";
 import sellerRoute from "./sellerAuth.js";
+import vendorRoute from "./vendorRoutes.js";
 import categoryRoute from "./categoryRoutes.js";
 import productRoute from "./productRoutes.js";
 import cartRoute from "./cartRoutes.js";
@@ -19,6 +20,7 @@ import settingsRoute from "./settingsRoutes.js";
 import hubInventoryRoute from "./hubInventoryRoutes.js";
 import purchaseRequestRoute from "./purchaseRequestRoutes.js";
 import pickupPartnerRoute from "./pickupPartnerRoutes.js";
+import pickupRoute from "./pickupRoutes.js";
 
 import express from "express";
 
@@ -31,11 +33,13 @@ const setupRoutes = (app) => {
     router.use("/admin/categories", categoryRoute);
     router.use("/admin", adminRoute);
     router.use("/seller", sellerRoute);
+    router.use("/vendor", vendorRoute);
     router.use("/settings", settingsRoute);
     router.use("/admin/hub-inventory", hubInventoryRoute);
     router.use("/admin/purchase-requests", purchaseRequestRoute);
     router.use("/admin/pickup-partners", pickupPartnerRoute);
     router.use("/pickup-partner", pickupPartnerRoute);
+    router.use("/pickup", pickupRoute);
     router.use("/categories", categoryRoute);
     router.use("/products", productRoute);
     router.use("/cart", cartRoute);

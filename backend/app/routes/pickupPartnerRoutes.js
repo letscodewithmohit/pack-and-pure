@@ -8,6 +8,7 @@ import {
   sendPickupPartnerLoginOtp,
   verifyPickupPartnerOtp,
   getPickupPartnerProfile,
+  updatePickupPartnerProfile,
   getMyPickupAssignments,
   markAssignmentPicked,
   markAssignmentHubDelivered,
@@ -28,6 +29,12 @@ router.get(
   verifyToken,
   allowRoles("pickup_partner", "admin"),
   getPickupPartnerProfile,
+);
+router.put(
+  "/my/profile",
+  verifyToken,
+  allowRoles("pickup_partner", "admin"),
+  updatePickupPartnerProfile,
 );
 router.get(
   "/my/assignments",

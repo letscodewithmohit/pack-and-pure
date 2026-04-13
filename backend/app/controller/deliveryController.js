@@ -732,6 +732,21 @@ export const validateDeliveryOtp = async (req, res) => {
             { new: true }
         );
 
+        // Notify customer via FCM
+        try {
+            const { createNotification } = await import('../services/notificationService.js');
+            await createNotification({
+                recipient: order.customer?._id || order.customer,
+                recipientModel: "Customer",
+                title: "Order Delivered",
+                message: `Your order #${order.orderId} has been delivered successfully. Enjoy!`,
+                type: "order",
+                data: { orderId: order.orderId, mongoOrderId: order._id.toString() },
+            });
+        } catch (notifyErr) {
+            console.warn('[validateDeliveryOtp] Notification failed:', notifyErr.message);
+        }
+
         // Emit Socket.IO event to customer
         try {
             const { getIO } = await import('../socket/socketManager.js');

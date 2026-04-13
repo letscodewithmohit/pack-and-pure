@@ -15,6 +15,11 @@ import {
   generateDeliveryOtp,
   validateDeliveryOtp,
 } from "../controller/deliveryController.js";
+import {
+  getAvailableOrders,
+  acceptOrder,
+  updateOrderStatus,
+} from "../controller/orderController.js";
 
 import { verifyToken, allowRoles } from "../middleware/authMiddleware.js";
 import upload from "../middleware/uploadMiddleware.js";
@@ -44,6 +49,37 @@ router.get(
   verifyToken,
   allowRoles("delivery"),
   getMyDeliveryOrders,
+);
+router.get(
+  "/tasks",
+  verifyToken,
+  allowRoles("delivery"),
+  getAvailableOrders,
+);
+router.post(
+  "/pickup",
+  verifyToken,
+  allowRoles("delivery"),
+  (req, res) => {
+    if (!req.body?.orderId) {
+      return res.status(400).json({ message: "orderId is required" });
+    }
+    req.params.orderId = req.body.orderId;
+    return acceptOrder(req, res);
+  },
+);
+router.post(
+  "/complete",
+  verifyToken,
+  allowRoles("delivery"),
+  (req, res) => {
+    if (!req.body?.orderId) {
+      return res.status(400).json({ message: "orderId is required" });
+    }
+    req.params.orderId = req.body.orderId;
+    req.body.status = "delivered";
+    return updateOrderStatus(req, res);
+  },
 );
 router.post("/request-withdrawal", verifyToken, requestWithdrawal);
 router.post("/location", verifyToken, updateDeliveryLocation);

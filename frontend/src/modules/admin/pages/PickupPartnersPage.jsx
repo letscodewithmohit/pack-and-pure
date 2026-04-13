@@ -69,7 +69,7 @@ const PickupPartnersPage = () => {
       String(currentRow.status || "").toLowerCase() === "inactive"
         ? "available"
         : "inactive";
-    await adminApi.updatePickupPartnerStatus(currentRow.id, next);
+    await adminApi.updatePickupPartner(currentRow.id, { status: next });
     setStatusOpen(false);
     await fetchPartners();
   };
@@ -121,28 +121,38 @@ const PickupPartnersPage = () => {
           { key: "partnerName", label: "Partner Name" },
           { key: "phone", label: "Phone" },
           { key: "vehicleType", label: "Vehicle" },
-          { key: "assignedPickups", label: "Assigned Pickups" },
-          { key: "status", label: "Status" },
+          { key: "assignedPickups", label: "Load" },
+          { key: "status", label: "Availability" },
+          { key: "isVerified", label: "KYC Status", render: (val) => val ? "✅ Verified" : "⚠️ Pending" },
         ]}
         rows={rows}
         statusColumn="status"
         renderActions={(row) => (
-          <>
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => openStatus(row)}
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
               {String(row.status || "").toLowerCase() === "inactive"
                 ? "Activate"
-                : "Deactivate"}
+                : "Sleep"}
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await adminApi.updatePickupPartner(row.id, { isVerified: !row.isVerified });
+                fetchPartners();
+              }}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-all shadow-sm ${row.isVerified ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-amber-500 hover:bg-amber-600'}`}>
+              {row.isVerified ? "Verified ✅" : "Verify KYC"}
             </button>
             <button
               type="button"
               onClick={() => openTrack(row)}
               className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700">
-              Track Pickup
+              Track
             </button>
-          </>
+          </div>
         )}
       />
 

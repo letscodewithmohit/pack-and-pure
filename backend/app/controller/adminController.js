@@ -1244,7 +1244,10 @@ export const getSellers = async (req, res) => {
       )
       .sort({ shopName: 1 })
       .lean();
-    return handleResponse(res, 200, "Sellers fetched", sellers);
+    return handleResponse(res, 200, "Sellers fetched", {
+      items: sellers,
+      total: sellers.length,
+    });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }

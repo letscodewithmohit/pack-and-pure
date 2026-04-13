@@ -129,6 +129,26 @@ const assignPickupToRequest = async (doc, partner) => {
   await PickupPartner.findByIdAndUpdate(partner._id, {
     $set: { status: "active", isActive: true },
   });
+
+  // Notify pickup partner about new assignment
+  try {
+    const { createNotification } = await import("../services/notificationService.js");
+    await createNotification({
+      recipient: partner._id,
+      recipientModel: "PickupPartner",
+      title: "New Pickup Task",
+      message: `You have been assigned a new pickup task from ${doc.vendorName || "a vendor"}.`,
+      type: "order",
+      data: { 
+        requestId: doc.requestId, 
+        purchaseRequestId: doc._id.toString(),
+        orderId: doc.orderId?.toString()
+      },
+    });
+  } catch (error) {
+    console.warn("[assignPickupToRequest] Notification failed:", error.message);
+  }
+
   return otp;
 };
 

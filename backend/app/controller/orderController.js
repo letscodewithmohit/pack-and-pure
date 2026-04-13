@@ -5,7 +5,9 @@ import Product from "../models/product.js";
 import Transaction from "../models/transaction.js";
 import StockHistory from "../models/stockHistory.js";
 import Notification from "../models/notification.js";
+import { createNotification } from "../services/notificationService.js";
 import Seller from "../models/seller.js";
+import PurchaseRequest from "../models/purchaseRequest.js";
 import Delivery from "../models/delivery.js";
 import Admin from "../models/admin.js";
 import Setting from "../models/setting.js";
@@ -21,6 +23,7 @@ import {
   startHubDeliverySearchAtomic,
   resolveWorkflowStatus,
 } from "../services/orderWorkflowService.js";
+import { applyCodCancellationStrike, isCodMethod, normalizePaymentMethod } from "../services/orderService.js";
 import {
   planHubFulfillment,
   reserveHubInventory,
@@ -33,47 +36,7 @@ import {
   orderMatchQueryFlexible,
 } from "../utils/orderLookup.js";
 
-const COD_METHODS = new Set(["cash", "cod"]);
-const COD_BLOCK_THRESHOLD_FALLBACK = Math.max(
-  1,
-  Number(process.env.COD_CANCEL_BLOCK_THRESHOLD || 3),
-);
-
-const normalizePaymentMethod = (method) =>
-  String(method || "cash")
-    .trim()
-    .toLowerCase();
-
-const isCodMethod = (method) => COD_METHODS.has(normalizePaymentMethod(method));
-
-const getCodBlockThreshold = async () => {
-  try {
-    const settings = await Setting.findOne({})
-      .select("codCancelBlockThreshold")
-      .lean();
-    const fromSettings = Number(settings?.codCancelBlockThreshold);
-    if (Number.isFinite(fromSettings) && fromSettings >= 1) {
-      return Math.floor(fromSettings);
-    }
-  } catch {
-    // noop, fallback below
-  }
-  return COD_BLOCK_THRESHOLD_FALLBACK;
-};
-
-const applyCodCancellationStrike = async (customerId) => {
-  const customer = await User.findById(customerId);
-  if (!customer) return null;
-  const threshold = await getCodBlockThreshold();
-  const nextCount = Number(customer.codCancelCount || 0) + 1;
-  customer.codCancelCount = nextCount;
-  if (nextCount >= threshold && !customer.codBlocked) {
-    customer.codBlocked = true;
-    customer.codBlockedAt = new Date();
-  }
-  await customer.save();
-  return customer;
-};
+// COD strike logic now handled in orderService.js
 
 /* ===============================
    PLACE ORDER
@@ -223,6 +186,7 @@ export const placeOrder = async (req, res) => {
       status: "pending",
       workflowVersion: 2,
       workflowStatus: WORKFLOW_STATUS.CREATED,
+      supplyChainStatus: hubPlan.fullyAvailable ? "READY_FOR_DELIVERY" : "WAITING_VENDOR",
       hubFlowEnabled: true,
       hubId: hubPlan.hubId,
       hubStatus,
@@ -230,6 +194,15 @@ export const placeOrder = async (req, res) => {
       slaDeadlineAt,
     });
     await newOrder.save();
+
+    await createNotification({
+      recipient: customerId,
+      recipientModel: "Customer",
+      title: "Order Placed",
+      message: `Your order #${orderId} has been placed successfully.`,
+      type: "order",
+      data: { orderId, mongoOrderId: newOrder._id },
+    });
 
     if (paymentMethod === "wallet") {
       const debitAmount = Number(pricing?.total || 0);
@@ -262,6 +235,32 @@ export const placeOrder = async (req, res) => {
           hubId: finalPlan.hubId,
         })
       : [];
+
+    if (finalPlan.shortages.length === 0) {
+      try {
+        await startHubDeliverySearchAtomic(orderId);
+      } catch (e) {
+        console.warn(
+          `[placeOrder] delivery dispatch skipped for ${orderId}: ${e.message}`,
+        );
+      }
+    }
+
+    if (purchaseRequests.length > 0) {
+      await Promise.all(
+        purchaseRequests.map((pr) => {
+          if (!pr.vendorId) return null;
+          return createNotification({
+            recipient: pr.vendorId,
+            recipientModel: "Seller",
+            title: "Vendor Purchase Request",
+            message: `A purchase request has been created for order #${orderId}.`,
+            type: "order",
+            data: { orderId, purchaseRequestId: pr._id?.toString() },
+          });
+        }),
+      );
+    }
 
     newOrder.hubStatus =
       finalPlan.shortages.length > 0 ? "procurement_required" : "inventory_reserved";
@@ -714,7 +713,7 @@ export const requestReturn = async (req, res) => {
 
     // Basic notification for seller about new return request
     if (order.seller) {
-      await Notification.create({
+      await createNotification({
         recipient: order.seller,
         recipientModel: "Seller",
         title: "New Return Request",
@@ -858,6 +857,48 @@ export const updateOrderStatus = async (req, res) => {
     if (order.workflowVersion >= 2 && role === "seller") {
       if (status === "confirmed") {
         try {
+          // If this is a hub order, we might need to accept a purchase request instead
+          // based on the seller acting on the order.
+          if (order.hubFlowEnabled) {
+            console.log(`[updateOrderStatus] Hub-flow order detected: ${order.orderId}. Checking PR for vendor: ${userId}`);
+            const PurchaseRequest = mongoose.model("PurchaseRequest");
+            
+            // Explicitly cast to ObjectId for robust matching
+            const vendorObjectId = new mongoose.Types.ObjectId(userId);
+            
+            const pr = await PurchaseRequest.findOne({
+              orderId: order._id,
+              vendorId: vendorObjectId,
+              status: "created",
+            });
+            
+            if (pr) {
+              console.log(`[updateOrderStatus] Found pending PR ${pr.requestId}. Accepting...`);
+              pr.vendorResponse = {
+                status: "accepted",
+                respondedAt: new Date(),
+                notes: "Accepted via order dashboard modal",
+              };
+              pr.status = "vendor_confirmed";
+              await pr.save();
+              
+              // Notify admin via socket that a vendor has accepted
+              emitToAdminOrdersRoom({
+                event: "purchase_request:accepted",
+                payload: {
+                  orderId: order.orderId,
+                  vendorId: userId,
+                  purchaseRequestId: pr._id,
+                },
+               });
+
+              return handleResponse(res, 200, "Purchase request confirmed", order);
+            } else {
+              console.log(`[updateOrderStatus] No pending 'created' PR found for order ${order.orderId} and vendor ${userId}. Fallback to direct acceptance.`);
+            }
+          }
+
+          // Fallback to standard direct-seller acceptance
           const updated = await sellerAcceptAtomic(userId, canonicalOrderId);
           return handleResponse(res, 200, "Order accepted", updated);
         } catch (e) {
@@ -866,6 +907,29 @@ export const updateOrderStatus = async (req, res) => {
       }
       if (status === "cancelled") {
         try {
+          // If this is a hub order, we might need to reject a purchase request instead
+          if (order.hubFlowEnabled) {
+            const PurchaseRequest = mongoose.model("PurchaseRequest");
+            const vendorObjectId = new mongoose.Types.ObjectId(userId);
+            const pr = await PurchaseRequest.findOne({
+              orderId: order._id,
+              vendorId: vendorObjectId,
+              status: "created",
+            });
+            if (pr) {
+              pr.vendorResponse = {
+                status: "rejected",
+                respondedAt: new Date(),
+                rejectionReason: "Declined via seller dashboard",
+                notes: "Rejected via order dashboard modal",
+              };
+              pr.status = "exception";
+              pr.exceptionReason = "Declined by vendor";
+              await pr.save();
+              return handleResponse(res, 200, "Purchase request declined", order);
+            }
+          }
+
           const updated = await sellerRejectAtomic(userId, canonicalOrderId);
           return handleResponse(res, 200, "Order rejected", updated);
         } catch (e) {
@@ -1163,7 +1227,7 @@ export const assignReturnDelivery = async (req, res) => {
 
     await order.save();
 
-    await Notification.create({
+    await createNotification({
       recipient: deliveryBoyId,
       recipientModel: "Delivery",
       title: "Return Pickup Assigned",
@@ -1430,6 +1494,33 @@ export const getSellerOrders = async (req, res) => {
 
     const total = await Order.countDocuments(query);
 
+    // Enrich orders with action required info for sellers to guide the frontend modal/alerts
+    const enrichedItems = await Promise.all(orders.map(async (o) => {
+      // If admin, no special action flags needed for this context
+      if (role !== "seller") return o;
+
+      const item = { ...o };
+      if (o.hubFlowEnabled) {
+          // Check if there's a pending purchase request for this seller
+          const PurchaseRequest = mongoose.model("PurchaseRequest");
+          const vendorObjectId = new mongoose.Types.ObjectId(userId);
+          const pr = await PurchaseRequest.findOne({ 
+              orderId: o._id, 
+              vendorId: vendorObjectId, 
+              status: "created" 
+          }).lean();
+          
+          if (pr) {
+             console.log(`[getSellerOrders] Order ${o.orderId} requires action from vendor ${userId} (PR: ${pr.requestId})`);
+          }
+          item.requiresAction = !!pr;
+      } else {
+          // Standard direct order
+          item.requiresAction = o.workflowStatus === WORKFLOW_STATUS.SELLER_PENDING;
+      }
+      return item;
+    }));
+
     console.log("Fetched Orders Page:", page, "Count:", orders.length);
 
     return handleResponse(
@@ -1437,7 +1528,7 @@ export const getSellerOrders = async (req, res) => {
       200,
       role === "admin" ? "All orders fetched" : "Seller orders fetched",
       {
-        items: orders,
+        items: enrichedItems,
         page,
         limit,
         total,
@@ -1638,7 +1729,7 @@ export const acceptOrder = async (req, res) => {
 
     await order.save();
 
-    await Notification.create({
+    await createNotification({
       recipient: order.seller,
       recipientModel: "Seller",
       title: "Delivery Partner Assigned",

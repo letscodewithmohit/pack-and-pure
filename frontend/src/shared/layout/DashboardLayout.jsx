@@ -78,9 +78,10 @@ const DashboardLayout = ({ children, navItems, title }) => {
                 setSellerOrders(allOrders);
 
                 const pendingOrders = allOrders.filter((o) => {
-                    const ws = (o.workflowStatus || '').toUpperCase();
-                    if (ws === 'SELLER_PENDING') return true;
-                    return (o?.status || '').toLowerCase() === 'pending';
+                    if (o.requiresAction !== undefined) return o.requiresAction;
+                    const ws = (o.workflowStatus || "").toUpperCase();
+                    if (ws === "SELLER_PENDING") return true;
+                    return (o?.status || "").toLowerCase() === "pending";
                 });
 
                 if (isFirstLoadRef.current) {
@@ -226,6 +227,7 @@ const DashboardLayout = ({ children, navItems, title }) => {
             await sellerApi.updateOrderStatus(orderId, { status: 'confirmed' });
             toast.success(`Order #${orderId} Accepted!`);
             setNewOrderAlert(null);
+            refreshOrders();
         } catch (error) {
             const msg =
                 error?.response?.data?.message ||
@@ -239,6 +241,7 @@ const DashboardLayout = ({ children, navItems, title }) => {
             await sellerApi.updateOrderStatus(orderId, { status: 'cancelled' });
             toast.error(`Order #${orderId} Declined`);
             setNewOrderAlert(null);
+            refreshOrders();
         } catch (error) {
             const msg =
                 error?.response?.data?.message ||

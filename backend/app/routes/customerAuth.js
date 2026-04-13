@@ -6,6 +6,8 @@ import {
     getCustomerProfile,
     updateCustomerProfile,
     getCustomerTransactions,
+    registerCustomerFcmToken,
+    removeCustomerFcmToken,
 } from "../controller/customerAuthController.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
 

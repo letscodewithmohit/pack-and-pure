@@ -105,6 +105,12 @@ const productSchema = new mongoose.Schema(
         isFeatured: {
             type: Boolean,
             default: false,
+        },
+        masterProductId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Product",
+            default: null,
+            // Only applicable if ownerType is 'seller'
         }
     },
     { timestamps: true }

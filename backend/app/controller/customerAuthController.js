@@ -230,6 +230,56 @@ export const updateCustomerProfile = async (req, res) => {
     }
 };
 
+export const registerCustomerFcmToken = async (req, res) => {
+    try {
+        const { token } = req.body;
+        if (!token || typeof token !== "string") {
+            return handleResponse(res, 400, "A valid FCM token is required");
+        }
+
+        const customer = await Customer.findById(req.user.id);
+        if (!customer) {
+            return handleResponse(res, 404, "Customer not found");
+        }
+
+        customer.fcmTokens = Array.from(
+            new Set([...(customer.fcmTokens || []), token.trim()]),
+        );
+        await customer.save();
+
+        return handleResponse(res, 200, "FCM token registered successfully", {
+            tokens: customer.fcmTokens,
+        });
+    } catch (error) {
+        return handleResponse(res, 500, error.message);
+    }
+};
+
+export const removeCustomerFcmToken = async (req, res) => {
+    try {
+        const { token } = req.body;
+        if (!token || typeof token !== "string") {
+            return handleResponse(res, 400, "A valid FCM token is required");
+        }
+
+        const customer = await Customer.findById(req.user.id);
+        if (!customer) {
+            return handleResponse(res, 404, "Customer not found");
+        }
+
+        customer.fcmTokens = (customer.fcmTokens || []).filter(
+            (existing) => existing !== token.trim(),
+        );
+        await customer.save();
+
+        return handleResponse(res, 200, "FCM token removed successfully", {
+            tokens: customer.fcmTokens,
+        });
+    } catch (error) {
+        return handleResponse(res, 500, error.message);
+    }
+};
+
 /* ===============================
    GET WALLET TRANSACTIONS
 ================================ */

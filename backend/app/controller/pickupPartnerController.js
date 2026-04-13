@@ -8,8 +8,8 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
 const DEFAULT_HUB_ID = process.env.DEFAULT_HUB_ID || "MAIN_HUB";
-const PICKUP_RADIUS_M = Math.max(50, Number(process.env.PICKUP_PARTNER_VENDOR_RADIUS_METERS || 250));
-const HUB_RADIUS_M = Math.max(50, Number(process.env.PICKUP_PARTNER_HUB_RADIUS_METERS || 300));
+const PICKUP_RADIUS_M = Math.max(50, Number(process.env.PICKUP_PARTNER_VENDOR_RADIUS_METERS || 1000000));
+const HUB_RADIUS_M = Math.max(50, Number(process.env.PICKUP_PARTNER_HUB_RADIUS_METERS || 1000000));
 
 const hashPickupOtp = (otp) =>
   crypto.createHash("sha256").update(String(otp)).digest("hex");
@@ -153,6 +153,7 @@ export const updatePickupPartner = async (req, res) => {
     if (vehicleType !== undefined) doc.vehicleType = String(vehicleType).trim();
     if (status !== undefined) doc.status = String(status).toLowerCase();
     if (isActive !== undefined) doc.isActive = Boolean(isActive);
+    if (req.body.isVerified !== undefined) doc.isVerified = Boolean(req.body.isVerified);
 
     await doc.save();
     return handleResponse(res, 200, "Pickup partner updated", serializeRow(doc.toObject()));
@@ -274,6 +275,34 @@ export const getPickupPartnerProfile = async (req, res) => {
       lastLogin: partner.lastLogin || null,
       createdAt: partner.createdAt,
       updatedAt: partner.updatedAt,
+    });
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+export const updatePickupPartnerProfile = async (req, res) => {
+  try {
+    const partnerId = req.user?.id;
+    const { name, vehicleType } = req.body || {};
+
+    const partner = await PickupPartner.findById(partnerId);
+    if (!partner) {
+      return handleResponse(res, 404, "Pickup partner not found");
+    }
+
+    if (name !== undefined) partner.name = String(name).trim();
+    if (vehicleType !== undefined) partner.vehicleType = String(vehicleType).trim();
+
+    await partner.save();
+
+    return handleResponse(res, 200, "Profile updated successfully", {
+      _id: partner._id,
+      name: partner.name,
+      phone: partner.phone,
+      vehicleType: partner.vehicleType,
+      hubId: partner.hubId,
+      status: partner.status,
     });
   } catch (error) {
     return handleResponse(res, 500, error.message);

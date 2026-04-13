@@ -142,6 +142,12 @@ const orderSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    supplyChainStatus: {
+      type: String,
+      enum: ["READY_FOR_DELIVERY", "WAITING_VENDOR", "VENDOR_READY", "PICKUP_ASSIGNED", "HUB_DELIVERED", "NONE"],
+      default: "NONE",
+      index: true,
+    },
     hubStatus: {
       type: String,
       enum: [

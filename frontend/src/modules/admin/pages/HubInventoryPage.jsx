@@ -48,7 +48,7 @@ const HubInventoryPage = () => {
 
   const fetchProducts = async () => {
     try {
-      const res = await adminApi.getProducts({ page: 1, limit: 300, status: "active" });
+      const res = await adminApi.getProducts({ page: 1, limit: 300, status: "active", ownerType: "admin" });
       const payload = res.data?.result || {};
       const items = Array.isArray(payload.items) ? payload.items : [];
       setProducts(items);

@@ -26,77 +26,27 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const ActiveSellers = () => {
     const navigate = useNavigate();
-    // Mock Data for Active Sellers
-    const [sellers, setSellers] = useState([
-        {
-            id: 's1',
-            shopName: 'Fresh Mart Superstore',
-            ownerName: 'Rahul Sharma',
-            email: 'rahul@freshmart.com',
-            phone: '+91 98765 43210',
-            category: 'Grocery',
-            rating: 4.8,
-            status: 'active',
-            joiningDate: '12 Jan 2024',
-            totalOrders: 1450,
-            revenue: 540000,
-            image: 'https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=200',
-            location: 'Mumbai, Maharashtra',
-            coords: { lat: 19.0760, lng: 72.8777 },
-            serviceRadius: 5
-        },
-        {
-            id: 's2',
-            shopName: 'Tech Zone Electronics',
-            ownerName: 'Anita Desai',
-            email: 'anita@techzone.in',
-            phone: '+91 88888 77777',
-            category: 'Electronics',
-            rating: 4.9,
-            status: 'active',
-            joiningDate: '05 Feb 2024',
-            totalOrders: 890,
-            revenue: 1250000,
-            image: 'https://images.unsplash.com/photo-1531297484001-80022131f5a1?auto=format&fit=crop&q=80&w=200',
-            location: 'Bangalore, Karnataka',
-            coords: { lat: 12.9716, lng: 77.5946 },
-            serviceRadius: 12
-        },
-        {
-            id: 's3',
-            shopName: 'Organic Greens Co.',
-            ownerName: 'Vikram Singh',
-            email: 'vikram@organicgreens.com',
-            phone: '+91 77777 66666',
-            category: 'Fruits & Veggies',
-            rating: 4.5,
-            status: 'active',
-            joiningDate: '20 Mar 2024',
-            totalOrders: 3200,
-            revenue: 420000,
-            image: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=200',
-            location: 'Delhi, NCR',
-            coords: { lat: 28.6139, lng: 77.2090 },
-            serviceRadius: 10
-        },
-        {
-            id: 's4',
-            shopName: 'Dairy Pure Farms',
-            ownerName: 'Sanjay Gupta',
-            email: 'sanjay@dairypure.com',
-            phone: '+91 99999 11111',
-            category: 'Dairy',
-            rating: 4.7,
-            status: 'active',
-            joiningDate: '15 Apr 2024',
-            totalOrders: 2100,
-            revenue: 350000,
-            image: 'https://images.unsplash.com/photo-1528498033373-3c6c08e93d79?auto=format&fit=crop&q=80&w=200',
-            location: 'Pune, Maharashtra',
-            coords: { lat: 18.5204, lng: 73.8567 },
-            serviceRadius: 8
+    const [sellers, setSellers] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    const fetchSellers = async () => {
+        try {
+            setIsLoading(true);
+            const res = await adminApi.getSellers({ page: 1, limit: 1000 });
+            const payload = res?.data?.result || {};
+            const items = Array.isArray(payload.items) ? payload.items : [];
+            setSellers(items);
+        } catch (error) {
+            console.error('Fetch sellers failed:', error);
+            setSellers([]);
+        } finally {
+            setIsLoading(false);
         }
-    ]);
+    };
+
+    React.useEffect(() => {
+        fetchSellers();
+    }, []);
 
     const [searchTerm, setSearchTerm] = useState('');
     const [filterCategory, setFilterCategory] = useState('all');
@@ -112,9 +62,10 @@ const ActiveSellers = () => {
 
     const [formState, setFormState] = useState({
         shopName: '',
-        ownerName: '',
+        name: '',
         email: '',
         phone: '',
+        password: '',
         category: 'Grocery',
         location: '',
         serviceRadius: 5
@@ -122,45 +73,48 @@ const ActiveSellers = () => {
 
     const stats = useMemo(() => ({
         total: sellers.length,
-        topRated: sellers.filter(s => s.rating >= 4.7).length,
-        highVolume: sellers.filter(s => s.totalOrders > 2000).length,
-        totalRevenue: sellers.reduce((acc, current) => acc + current.revenue, 0)
+        topRated: sellers.filter(s => (s.rating || 0) >= 4.7).length,
+        highVolume: sellers.filter(s => (s.totalOrders || 0) > 100).length,
+        totalRevenue: sellers.reduce((acc, current) => acc + (current.revenue || 0), 0)
     }), [sellers]);
 
     const filteredSellers = useMemo(() => {
         return sellers.filter(s => {
-            const matchesSearch = s.shopName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                s.ownerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                s.email.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesSearch = (s.shopName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (s.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (s.email || '').toLowerCase().includes(searchTerm.toLowerCase());
             const matchesCategory = filterCategory === 'all' || s.category === filterCategory;
-            const matchesRevenue = s.revenue >= advancedFilters.minRevenue;
-            const matchesRating = s.rating >= advancedFilters.minRating;
+            const matchesRevenue = (s.revenue || 0) >= advancedFilters.minRevenue;
+            const matchesRating = (s.rating || 0) >= advancedFilters.minRating;
             return matchesSearch && matchesCategory && matchesRevenue && matchesRating;
         });
     }, [sellers, searchTerm, filterCategory, advancedFilters]);
 
-    const handleOnboard = (e) => {
+    const handleOnboard = async (e) => {
         e.preventDefault();
-        const newSeller = {
-            id: `s${Date.now()}`,
-            ...formState,
-            rating: 0,
-            status: 'active',
-            joiningDate: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
-            totalOrders: 0,
-            revenue: 0,
-            image: 'https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=200',
-            coords: { lat: 19.0760, lng: 72.8777 }
-        };
-        setSellers([...sellers, newSeller]);
-        setIsOnboardingOpen(false);
-        setFormState({ shopName: '', ownerName: '', email: '', phone: '', category: 'Grocery', location: '', serviceRadius: 5 });
+        try {
+            await adminApi.createSeller({
+                ...formState,
+                isVerified: true,
+                isActive: true
+            });
+            setIsOnboardingOpen(false);
+            setFormState({ shopName: '', name: '', email: '', phone: '', password: '', category: 'Grocery', location: '', serviceRadius: 5 });
+            fetchSellers();
+        } catch (error) {
+            alert(error?.response?.data?.message || 'Onboarding failed');
+        }
     };
 
-    const handleEditUpdate = (e) => {
+    const handleEditUpdate = async (e) => {
         e.preventDefault();
-        setSellers(sellers.map(s => s.id === editingSeller.id ? { ...s, ...formState } : s));
-        setEditingSeller(null);
+        try {
+            await adminApi.updateSeller(editingSeller._id, formState);
+            setEditingSeller(null);
+            fetchSellers();
+        } catch (error) {
+            alert(error?.response?.data?.message || 'Update failed');
+        }
     };
 
     const deleteSeller = (id) => {
@@ -315,22 +269,31 @@ const ActiveSellers = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                            {filteredSellers.map((s) => (
-                                <tr key={s.id} className="hover:bg-slate-50/30 transition-colors group">
+                            {isLoading ? (
+                                <tr>
+                                    <td colSpan="5" className="px-6 py-20 text-center">
+                                        <div className="flex flex-col items-center justify-center">
+                                            <div className="h-12 w-12 border-4 border-slate-200 border-t-primary rounded-full animate-spin mb-4" />
+                                            <p className="text-slate-500 font-bold text-sm">Fetching sellers...</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ) : filteredSellers.length > 0 ? filteredSellers.map((s) => (
+                                <tr key={s._id} className="hover:bg-slate-50/30 transition-colors group">
                                     <td className="px-6 py-4">
                                         <div
                                             className="flex items-center gap-4 cursor-pointer group/name"
-                                            onClick={() => navigate(`/admin/sellers/active/${s.id}`)}
+                                            onClick={() => openSellerDetails(s)}
                                         >
-                                            <div className="h-12 w-12 rounded-2xl overflow-hidden bg-slate-100 ring-2 ring-slate-100 group-hover:ring-primary/20 transition-all">
-                                                <img src={s.image} alt={s.shopName} className="h-full w-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                                            <div className="h-12 w-12 rounded-2xl overflow-hidden bg-slate-100 ring-2 ring-slate-100 group-hover:ring-primary/20 transition-all flex items-center justify-center text-slate-300">
+                                                <HiOutlineBuildingOffice2 className="h-6 w-6" />
                                             </div>
                                             <div>
                                                 <p className="text-sm font-bold text-slate-900 group-hover/name:text-primary transition-colors">{s.shopName}</p>
                                                 <div className="flex items-center gap-2 mt-0.5">
-                                                    <span className="text-[10px] font-semibold text-slate-400">{s.ownerName}</span>
+                                                    <span className="text-[10px] font-semibold text-slate-400">{s.name}</span>
                                                     <span className="h-1 w-1 rounded-full bg-slate-300" />
-                                                    <span className="text-[10px] font-bold text-primary">{s.category}</span>
+                                                    <span className="text-[10px] font-bold text-primary">{s.category || 'N/A'}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -340,42 +303,45 @@ const ActiveSellers = () => {
                                             <div className="flex items-center gap-1.5">
                                                 <div className="flex items-center text-amber-500">
                                                     <HiOutlineStar className="h-3 w-3 fill-current" />
-                                                    <span className="text-xs font-bold ml-1">{s.rating}</span>
+                                                    <span className="text-xs font-bold ml-1">{s.rating || '0.0'}</span>
                                                 </div>
                                                 <span className="text-[10px] font-bold text-slate-300">/ 5.0</span>
                                             </div>
                                             <div className="w-24 h-1 bg-slate-100 rounded-full overflow-hidden">
                                                 <div
                                                     className="h-full bg-amber-400 rounded-full"
-                                                    style={{ width: `${(s.rating / 5) * 100}%` }}
+                                                    style={{ width: `${((s.rating || 0) / 5) * 100}%` }}
                                                 />
                                             </div>
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <div className="flex flex-col items-center">
-                                            <span className="text-xs font-bold text-slate-900">{s.totalOrders.toLocaleString()} Orders</span>
-                                            <span className="text-[9px] font-bold text-emerald-600 mt-0.5">₹{(s.revenue / 1000).toFixed(0)}k Revenue</span>
+                                            <span className="text-xs font-bold text-slate-900">{(s.totalOrders || 0).toLocaleString()} Orders</span>
+                                            <span className="text-[9px] font-bold text-emerald-600 mt-0.5">₹{((s.revenue || 0) / 1000).toFixed(1)}k Revenue</span>
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                        <Badge variant="success" className="bg-emerald-50 text-emerald-600 border-none text-[10px]">VERIFIED</Badge>
+                                        <Badge variant={s.isActive ? "success" : "danger"} className="text-[10px]">
+                                            {s.isActive ? 'ACTIVE' : 'INACTIVE'}
+                                        </Badge>
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                         <div className="flex items-center justify-end space-x-2">
                                             <button
-                                                onClick={() => navigate(`/admin/sellers/active/${s.id}`)}
+                                                onClick={() => openSellerDetails(s)}
                                                 className="p-2 hover:bg-slate-100 rounded-xl transition-all text-slate-400 hover:text-primary"
                                             >
                                                 <HiOutlineEye className="h-4 w-4" />
                                             </button>
-                                            <button className="p-2 hover:bg-slate-100 rounded-xl transition-all text-slate-400 hover:text-slate-600">
-                                                <HiOutlineEllipsisHorizontal className="h-4 w-4" />
-                                            </button>
                                         </div>
                                     </td>
                                 </tr>
-                            ))}
+                            )) : (
+                                <tr>
+                                    <td colSpan="5" className="px-6 py-20 text-center text-slate-400 font-bold">NO SELLERS FOUND</td>
+                                </tr>
+                            )}
                         </tbody>
                     </table>
                 </div>
@@ -411,26 +377,20 @@ const ActiveSellers = () => {
 
                                 <div className="px-4 pb-8">
                                     <div className="relative -mt-12 flex items-end justify-between mb-8">
-                                        <div className="h-24 w-24 rounded-xl border-4 border-white overflow-hidden bg-white shadow-xl">
-                                            <img src={viewingSeller.image} className="h-full w-full object-cover" />
+                                        <div className="h-24 w-24 rounded-xl border-4 border-white overflow-hidden bg-slate-100 shadow-xl flex items-center justify-center text-slate-300">
+                                            <HiOutlineBuildingOffice2 className="h-10 w-10" />
                                         </div>
                                         <div className="flex gap-3">
-                                            <button
-                                                onClick={() => deleteSeller(viewingSeller.id)}
-                                                className="px-5 py-2.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-700 rounded-xl text-xs font-bold transition-all"
-                                            >
-                                                REMOVE SELLER
-                                            </button>
                                             <button
                                                 onClick={() => {
                                                     setEditingSeller(viewingSeller);
                                                     setFormState({
                                                         shopName: viewingSeller.shopName,
-                                                        ownerName: viewingSeller.ownerName,
+                                                        name: viewingSeller.name,
                                                         email: viewingSeller.email,
                                                         phone: viewingSeller.phone,
-                                                        category: viewingSeller.category,
-                                                        location: viewingSeller.location,
+                                                        category: viewingSeller.category || 'Grocery',
+                                                        location: viewingSeller.location?.coordinates?.join(', ') || '',
                                                         serviceRadius: viewingSeller.serviceRadius
                                                     });
                                                     setIsSellerModalOpen(false);
@@ -446,13 +406,13 @@ const ActiveSellers = () => {
                                         <div className="space-y-6">
                                             <div>
                                                 <h2 className="ds-h1">{viewingSeller.shopName}</h2>
-                                                <p className="ds-description mt-0.5">{viewingSeller.category} Super-Partner</p>
+                                                <p className="ds-description mt-0.5">{viewingSeller.category || 'Business'} Partner</p>
                                             </div>
 
                                             <div className="space-y-4">
                                                 <div className="flex items-center gap-3 text-slate-600">
                                                     <HiOutlineBuildingOffice2 className="h-4 w-4 text-slate-400" />
-                                                    <span className="text-xs font-bold">{viewingSeller.ownerName} (Owner)</span>
+                                                    <span className="text-xs font-bold">{viewingSeller.name} (Owner)</span>
                                                 </div>
                                                 <div className="flex items-center gap-3 text-slate-600">
                                                     <HiOutlineEnvelope className="h-4 w-4 text-slate-400" />
@@ -462,10 +422,6 @@ const ActiveSellers = () => {
                                                     <HiOutlinePhone className="h-4 w-4 text-slate-400" />
                                                     <span className="text-xs font-bold">{viewingSeller.phone}</span>
                                                 </div>
-                                                <div className="flex items-center gap-3 text-slate-600">
-                                                    <HiOutlineMapPin className="h-4 w-4 text-slate-400" />
-                                                    <span className="text-xs font-semibold">{viewingSeller.location}</span>
-                                                </div>
                                             </div>
                                         </div>
 
@@ -474,65 +430,13 @@ const ActiveSellers = () => {
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="p-4 bg-white rounded-2xl border border-slate-100">
                                                     <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Sales</p>
-                                                    <p className="text-lg font-bold text-slate-900">₹{(viewingSeller.revenue / 1000).toFixed(0)}k</p>
+                                                    <p className="text-lg font-bold text-slate-900">₹{((viewingSeller.revenue || 0) / 1000).toFixed(1)}k</p>
                                                 </div>
                                                 <div className="p-4 bg-white rounded-2xl border border-slate-100">
                                                     <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1">Orders</p>
-                                                    <p className="text-lg font-bold text-slate-900">{viewingSeller.totalOrders}</p>
+                                                    <p className="text-lg font-bold text-slate-900">{viewingSeller.totalOrders || 0}</p>
                                                 </div>
                                             </div>
-                                            <div className="p-4 bg-white rounded-2xl border border-slate-100 flex items-center justify-between">
-                                                <div>
-                                                    <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1">Partner Since</p>
-                                                    <p className="text-xs font-bold text-slate-900">{viewingSeller.joiningDate}</p>
-                                                </div>
-                                                <HiOutlineCalendarDays className="h-5 w-5 text-slate-200" />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Map Section */}
-                                    <div className="mt-8 space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Geolocation & Service Area</h4>
-                                            <div className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-bold ring-1 ring-emerald-100 flex items-center gap-1.5">
-                                                <HiOutlineCheckCircle className="h-3 w-3" />
-                                                {viewingSeller.serviceRadius}km Range Active
-                                            </div>
-                                        </div>
-                                        <div className="h-64 w-full rounded-xl overflow-hidden grayscale-[0.5] contrast-[1.2] ring-1 ring-slate-100 relative group bg-slate-100">
-                                            {"YOUR_API_KEY" !== "YOUR_API_KEY" ? (
-                                                <iframe
-                                                    title="Seller Location"
-                                                    width="100%"
-                                                    height="100%"
-                                                    frameBorder="0"
-                                                    style={{ border: 0 }}
-                                                    src={`https://www.google.com/maps/embed/v1/place?key=YOUR_API_KEY&q=${viewingSeller.coords.lat},${viewingSeller.coords.lng}&zoom=14`}
-                                                    allowFullScreen
-                                                ></iframe>
-                                            ) : (
-                                                <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&q=80&w=1200')] bg-cover bg-center opacity-20" />
-                                            )}
-                                            {/* Since we don't have a real API key in this demo, let's add a visual overlay for the "Service Area" effect */}
-                                            <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                                                <div
-                                                    className="rounded-full bg-primary/10 border-2 border-primary/30 animate-pulse flex items-center justify-center"
-                                                    style={{ width: '120px', height: '120px' }}
-                                                >
-                                                    <div className="h-4 w-4 bg-primary rounded-full shadow-lg border-2 border-white ring-4 ring-primary/20" />
-                                                </div>
-                                            </div>
-                                            {"YOUR_API_KEY" === "YOUR_API_KEY" && (
-                                                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-md px-4 py-2 rounded-2xl shadow-xl border border-white/50 flex items-center gap-3">
-                                                    <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-                                                    <span className="text-[10px] font-bold text-slate-700 tracking-tight">DEMO MODE: PLEASE CONFIGURE GOOGLE MAPS API KEY</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="flex items-center justify-between text-[10px] font-medium text-slate-500 pt-1 px-1">
-                                            <span className="flex items-center gap-1.5"><HiOutlineMapPin className="h-3.5 w-3.5 text-primary" /> Exact Store Coordinates Secured</span>
-                                            <span>Last Updated: Today</span>
                                         </div>
                                     </div>
                                 </div>
@@ -598,8 +502,8 @@ const ActiveSellers = () => {
                                     <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Owner Name</label>
                                     <input
                                         required
-                                        value={formState.ownerName}
-                                        onChange={(e) => setFormState({ ...formState, ownerName: e.target.value })}
+                                        value={formState.name}
+                                        onChange={(e) => setFormState({ ...formState, name: e.target.value })}
                                         className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-xs font-bold outline-none ring-1 ring-slate-100 focus:ring-primary/20 transition-all"
                                     />
                                 </div>
@@ -626,11 +530,24 @@ const ActiveSellers = () => {
                                     </div>
                                 </div>
 
+                                {!editingSeller && (
+                                    <div className="space-y-1">
+                                        <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Password</label>
+                                        <input
+                                            type="password"
+                                            required
+                                            value={formState.password}
+                                            onChange={(e) => setFormState({ ...formState, password: e.target.value })}
+                                            className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-xs font-bold outline-none ring-1 ring-slate-100 focus:ring-primary/20 transition-all"
+                                        />
+                                    </div>
+                                )}
+
                                 <div className="grid grid-cols-4 gap-4 items-end">
                                     <div className="col-span-3 space-y-1">
-                                        <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Location Address</label>
+                                        <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Coordinates (Lng, Lat)</label>
                                         <input
-                                            required
+                                            placeholder="e.g. 77.123, 28.123"
                                             value={formState.location}
                                             onChange={(e) => setFormState({ ...formState, location: e.target.value })}
                                             className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-xs font-bold outline-none"

@@ -540,7 +540,9 @@ const OrderDetails = () => {
                   </div>
                   <div>
                     <h2 className="font-bold text-gray-800">Pickup Location</h2>
-                    <p className="text-xs text-orange-600 font-medium">Store Location</p>
+                    <p className="text-xs text-orange-600 font-medium">
+                      {order?.hubFlowEnabled ? "Main Logistics Hub" : "Store Location"}
+                    </p>
                   </div>
                 </div>
                 {order.seller?.phone && (
@@ -555,9 +557,11 @@ const OrderDetails = () => {
                 )}
               </div>
               <div className="p-4">
-                <h3 className="font-bold text-lg mb-1">{order.seller?.shopName || "Seller Store"}</h3>
+                <h3 className="font-bold text-lg mb-1">
+                  {order?.hubFlowEnabled ? "Pack n Pure Hub" : (order?.seller?.shopName || "Seller Store")}
+                </h3>
                 <p className="text-gray-500 text-sm mb-4 leading-relaxed">
-                  {order.seller?.address || "Address not available"}
+                  {order?.hubFlowEnabled ? "Hub Address (Refer to Map)" : (order?.seller?.address || "Address not available")}
                 </p>
                 <Button onClick={handleNavigate} className="w-full" variant="outline">
                   <Navigation size={18} className="mr-2" /> Navigate to Store

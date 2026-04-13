@@ -65,6 +65,7 @@ const ProductManagement = () => {
         tags: '',
         weight: '',
         brand: '',
+        masterProductId: '',
         mainImage: null,
         galleryImages: [],
         variants: [
@@ -142,6 +143,7 @@ const ProductManagement = () => {
         data.append('brand', formData.brand);
         data.append('weight', formData.weight);
         data.append('tags', formData.tags);
+        data.append('masterProductId', formData.masterProductId || '');
         data.append('variants', JSON.stringify(formData.variants));
 
         if (formData.mainImageFile) {
@@ -238,6 +240,7 @@ const ProductManagement = () => {
                 tags: Array.isArray(item.tags) ? item.tags.join(', ') : item.tags || '',
                 weight: item.weight || '',
                 brand: item.brand || '',
+                masterProductId: item.masterProductId || '',
                 mainImage: item.mainImage || null,
                 galleryImages: item.galleryImages || [],
                 variants: (item.variants && item.variants.length > 0) ? item.variants.map(v => ({ ...v, id: v._id || Date.now() })) : [
@@ -259,6 +262,7 @@ const ProductManagement = () => {
                 salePrice: '', stock: '', lowStockAlert: 5, unit: 'packet',
                 header: '', categoryId: '', subcategoryId: '', status: 'active',
                 isFeatured: false, tags: '', weight: '', brand: '',
+                masterProductId: '',
                 mainImage: null, galleryImages: [],
                 variants: [
                     { id: Date.now(), name: 'Default', price: '', salePrice: '', stock: '', sku: '' }
@@ -280,7 +284,14 @@ const ProductManagement = () => {
         active: productsList.filter(p => p.status === 'active').length
     }), [productsList, total]);
 
-    const StatusBadge = ({ status, stock }) => {
+    const StatusBadge = ({ item }) => {
+        const { status, stock, ownerType } = item;
+        // For Admin (Master) products, stock is in Hub/Sellers, so don't show Out of Stock based on 0
+        if (ownerType === 'admin') {
+            if (status === 'active') return <Badge variant="success" className="text-[10px] px-1.5 py-0">Active</Badge>;
+            return <Badge variant="gray" className="text-[10px] px-1.5 py-0">Inactive</Badge>;
+        }
+
         if (stock === 0) return <Badge variant="error" className="text-[10px] px-1.5 py-0">Out of Stock</Badge>;
         if (stock <= 10) return <Badge variant="warning" className="text-[10px] px-1.5 py-0">Low Stock</Badge>;
         if (status === 'active') return <Badge variant="success" className="text-[10px] px-1.5 py-0">Active</Badge>;
@@ -490,7 +501,7 @@ const ProductManagement = () => {
 
                                     {/* Status Column */}
                                     <td className="px-6 py-4 text-center">
-                                        <StatusBadge status={p.status} stock={p.stock} />
+                                        <StatusBadge item={p} />
                                     </td>
 
                                     {/* Actions Column */}
@@ -725,6 +736,25 @@ const ProductManagement = () => {
                                                     ))}
                                                 </select>
                                             </div>
+                                            {/* Master Mapping */}
+                                            {editingItem?.ownerType === 'seller' && (
+                                                <div className="space-y-1.5 flex flex-col pt-4 border-t border-slate-100">
+                                                    <label className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest ml-1">Connect to Master Catalog (Product Normalization)</label>
+                                                    <select
+                                                        value={formData.masterProductId}
+                                                        onChange={(e) => setFormData({ ...formData, masterProductId: e.target.value })}
+                                                        className="w-full px-4 py-3 bg-indigo-50 border-none rounded-xl text-sm font-bold text-indigo-900 outline-none ring-indigo-200 focus:ring-2 cursor-pointer"
+                                                    >
+                                                        <option value="">No Mapping (Standalone)</option>
+                                                        {products.filter(p => p.ownerType === 'admin').map(master => (
+                                                            <option key={master._id} value={master._id}>
+                                                                {master.name} (SKU: {master.sku || 'N/A'})
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <p className="text-[10px] text-slate-400 font-medium italic mt-1">If mapped, this seller's stock will contribute to this master product's total count on the app.</p>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import Button from "@shared/components/ui/Button";
 import Badge from "@shared/components/ui/Badge";
 import {
@@ -43,6 +43,7 @@ const AddProduct = () => {
     weight: "",
     brand: "",
     mainImage: null,
+    masterProductId: "",
     galleryImages: [],
     variants: [
       {
@@ -55,6 +56,21 @@ const AddProduct = () => {
       },
     ],
   });
+
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const suggestionsRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const [dbCategories, setDbCategories] = useState([]);
   const [isLoadingCats, setIsLoadingCats] = useState(true);
@@ -136,6 +152,10 @@ const AddProduct = () => {
       // Variants
       data.append("variants", JSON.stringify(formData.variants));
 
+      if (formData.masterProductId) {
+        data.append("masterProductId", formData.masterProductId);
+      }
+
       await sellerApi.createProduct(data);
       toast.success("Product saved successfully!");
       navigate("/seller/products");
@@ -167,6 +187,49 @@ const AddProduct = () => {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleNameChange = async (e) => {
+    const val = e.target.value;
+    setFormData(prev => ({ ...prev, name: val, masterProductId: "" })); // Clear mapping if user types manually
+    
+    if (val.trim().length < 3) { // Increased threshold to 3 for better relevance
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      // Fetching from general product list (filtered by ownerType=admin ideally)
+      const res = await sellerApi.getProducts({ search: val, limit: 10 });
+      const items = res.data?.result?.items || res.data?.items || [];
+      // Filter only admin/master products if they are mixed
+      setSuggestions(items);
+      setShowSuggestions(true);
+    } catch (err) {
+      console.error("Search failed", err);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const selectSuggestion = (prod) => {
+    setFormData(prev => ({
+      ...prev,
+      name: prod.name,
+      masterProductId: prod._id,
+      description: prod.description || prev.description,
+      brand: prod.brand || prev.brand,
+      header: prod.headerId?._id || prod.headerId || prev.header,
+      category: prod.categoryId?._id || prod.categoryId || prev.category,
+      subcategory: prod.subcategoryId?._id || prod.subcategoryId || prev.subcategory,
+      weight: prod.weight || prev.weight,
+      tags: Array.isArray(prod.tags) ? prod.tags.join(", ") : (prod.tags || prev.tags),
+      // Optional: use master image as placeholder?
+      mainImage: prod.mainImage || prev.mainImage
+    }));
+    setShowSuggestions(false);
   };
 
   return (
@@ -245,18 +308,64 @@ const AddProduct = () => {
         <div className="flex-1 p-8 overflow-y-auto">
           {modalTab === "general" && (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
-              <div className="space-y-1.5 flex flex-col">
-                <label className="text-[10px] sm:text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">
-                  Product Title
+              <div className="space-y-1.5 flex flex-col relative" ref={suggestionsRef}>
+                <label className="text-[10px] sm:text-xs font-bold text-slate-600 uppercase tracking-widest ml-1 flex justify-between">
+                  <span>Product Title</span>
+                  {formData.masterProductId && (
+                    <span className="text-emerald-600 font-black animate-pulse">✓ MAPPED TO CATALOG</span>
+                  )}
                 </label>
-                <input
-                  value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
-                  className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-md text-sm font-semibold outline-none ring-primary/5 focus:ring-2 transition-all"
-                  placeholder="e.g. Premium Basmati Rice"
-                />
+                <div className="relative">
+                  <input
+                    value={formData.name}
+                    onChange={handleNameChange}
+                    className={cn(
+                      "w-full px-4 py-2.5 bg-slate-100 border-none rounded-md text-sm font-semibold outline-none ring-primary/5 focus:ring-2 transition-all",
+                      formData.masterProductId && "ring-2 ring-emerald-500/20 bg-emerald-50/30"
+                    )}
+                    placeholder="e.g. Premium Basmati Rice"
+                  />
+                  {isSearching && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <HiOutlineArrowPath className="h-4 w-4 text-slate-400 animate-spin" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Suggestions Dropdown */}
+                {showSuggestions && suggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white rounded-xl shadow-2xl border border-slate-100 max-h-[280px] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
+                    <div className="p-2 border-b border-slate-50 bg-slate-50/50">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-2">Matches in Hub Catalog</p>
+                    </div>
+                    {suggestions.map((p) => (
+                      <button
+                        key={p._id}
+                        type="button"
+                        onClick={() => selectSuggestion(p)}
+                        className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors flex items-center gap-3 border-b border-slate-50 last:border-0 group"
+                      >
+                        {p.mainImage ? (
+                          <img src={p.mainImage} className="w-8 h-8 rounded object-cover border border-slate-200" alt="" />
+                        ) : (
+                          <div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center">
+                            <HiOutlineCube className="h-4 w-4 text-slate-400" />
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors">{p.name}</p>
+                          <p className="text-[10px] text-slate-500 font-medium">In {p.categoryId?.name || "Catalog"}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {showSuggestions && suggestions.length === 0 && !isSearching && formData.name.length > 1 && (
+                  <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white rounded-xl shadow-2xl border border-slate-100 p-4 text-center animate-in fade-in zoom-in-95 duration-200">
+                    <p className="text-xs font-bold text-slate-600">No matches found in catalog.</p>
+                    <p className="text-[10px] text-slate-400 mt-1">We'll create a new entry for you after approval.</p>
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5 flex flex-col">
                 <label className="text-[10px] sm:text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">

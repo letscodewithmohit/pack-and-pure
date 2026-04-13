@@ -22,6 +22,10 @@ const pickupPartnerSchema = new mongoose.Schema(
       default: "MAIN_HUB",
       index: true,
     },
+    fcmTokens: {
+      type: [String],
+      default: [],
+    },
     status: {
       type: String,
       enum: ["available", "active", "inactive"],
