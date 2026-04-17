@@ -1122,7 +1122,10 @@ export async function verifyHandoffOtpAndDeliver(deliveryId, orderId, code) {
   const updated = await Order.findOneAndUpdate(
     {
       orderId,
-      workflowStatus: WORKFLOW_STATUS.OUT_FOR_DELIVERY,
+      $or: [
+        { workflowStatus: WORKFLOW_STATUS.OUT_FOR_DELIVERY },
+        { status: "out_for_delivery" }, // legacy fallback
+      ],
       deliveryBoy: deliveryId,
     },
     {
@@ -1130,19 +1133,43 @@ export async function verifyHandoffOtpAndDeliver(deliveryId, orderId, code) {
         workflowStatus: WORKFLOW_STATUS.DELIVERED,
         status: "delivered",
         deliveredAt: now,
+        deliveryRiderStep: 5,
       },
     },
     { new: true },
   );
 
-  if (!updated) {
-    const err = new Error("Could not finalize delivery");
-    err.statusCode = 409;
-    throw err;
-  }
+    if (!updated) {
+      const err = new Error("Could not finalize delivery");
+      err.statusCode = 409;
+      throw err;
+    }
 
-  // BUGFIX: Verify customer field is preserved after update
-  if (!updated.customer) {
+    // --- HUB STOCK DEDUCTION (SOP) ---
+    if (updated.hubFlowEnabled) {
+      try {
+        const hubId = process.env.DEFAULT_HUB_ID || "MAIN_HUB";
+        const HubInventory = (await import("../models/hubInventory.js")).default;
+        
+        for (const item of updated.items) {
+          const productId = String(item.product);
+          const qtyToDeduct = Number(item.quantity || 0);
+
+          if (qtyToDeduct > 0) {
+            await HubInventory.findOneAndUpdate(
+              { hubId, productId },
+              { $inc: { hubStockQuantity: -qtyToDeduct } }
+            );
+            console.log(`[InventorySync] Deducting ${qtyToDeduct} from Hub for product ${productId}`);
+          }
+        }
+      } catch (err) {
+        console.warn("[InventorySync] Failed to deduct hub stock during delivery:", err.message);
+      }
+    }
+
+    // BUGFIX: Verify customer field is preserved after update
+    if (!updated.customer) {
     console.error(`[ORDER_BUG] Customer field lost during delivery completion`, {
       orderId,
       _id: updated._id,

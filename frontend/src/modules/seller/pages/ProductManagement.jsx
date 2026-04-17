@@ -139,6 +139,7 @@ const ProductManagement = () => {
     salePrice: "",
     stock: "",
     lowStockAlert: 5,
+    unit: "Pieces",
     category: "",
     header: "",
     subcategory: "",
@@ -232,6 +233,7 @@ const ProductManagement = () => {
       data.append("status", formData.status);
       data.append("brand", formData.brand);
       data.append("weight", formData.weight);
+      data.append("unit", formData.unit);
       data.append("tags", formData.tags);
       data.append("variants", JSON.stringify(formData.variants));
 
@@ -316,6 +318,7 @@ const ProductManagement = () => {
         status: item.status || "pending_approval",
         tags: Array.isArray(item.tags) ? item.tags.join(", ") : item.tags || "",
         weight: item.weight || "",
+        unit: item.unit || "Pieces",
         brand: item.brand || "",
         mainImage: item.mainImage || null,
         galleryImages: item.galleryImages || [],
@@ -346,6 +349,7 @@ const ProductManagement = () => {
         status: "pending_approval",
         tags: "",
         weight: "",
+        unit: "Pieces",
         brand: "",
         mainImage: null,
         galleryImages: [],
@@ -908,6 +912,23 @@ const ProductManagement = () => {
                               placeholder="premium-basmati-rice"
                             />
                           </div>
+                        </div>
+                        <div className="space-y-1.5 flex flex-col">
+                          <label className="text-[10px] sm:text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">Measurement Unit <span className="text-rose-500">*</span></label>
+                          <select
+                            value={formData.unit}
+                            onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                            className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold outline-none cursor-pointer"
+                          >
+                            <option value="Pieces">Pieces</option>
+                            <option value="kg">Kilograms (kg)</option>
+                            <option value="g">Grams (g)</option>
+                            <option value="L">Liters (L)</option>
+                            <option value="ml">Milliliters (ml)</option>
+                            <option value="Pack">Pack</option>
+                            <option value="Box">Box</option>
+                            <option value="Bundle">Bundle</option>
+                          </select>
                         </div>
                       </div>
                       <div className="space-y-1.5 flex flex-col">

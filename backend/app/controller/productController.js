@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Product from "../models/product.js";
 import HubInventory from "../models/hubInventory.js";
 import { handleResponse } from "../utils/helper.js";
@@ -10,6 +11,9 @@ import {
 } from "../services/customerVisibilityService.js";
 
 function isCustomerVisibilityRequest(req) {
+  // If explicitly searching master catalog, it's not a location-bound customer request
+  if (req.query.ownerType === "admin") return false;
+  
   const role = String(req.user?.role || "").toLowerCase();
   return !role || role === "customer" || role === "user";
 }
@@ -95,12 +99,20 @@ export const getProducts = async (req, res) => {
     } = req.query;
     const enforceHubOnly = isCustomerVisibilityRequest(req);
 
-    const query = ownerType ? { ownerType } : {};
+    const query = {};
+    
+    if (ownerType) query.ownerType = ownerType;
+    if (status) query.status = status;
+    if (sellerId) query.sellerId = sellerId;
+
     if (search) {
-      query.name = { $regex: search, $options: "i" };
+      query.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { brand: { $regex: search, $options: "i" } },
+        { tags: { $in: [new RegExp(search, "i")] } }
+      ];
     }
 
-    // Support both field names for flexibility (backward compatibility)
     const finalHeaderId = header || headerId;
     const finalCategoryId = category || categoryId;
     const finalSubcategoryId = subcategory || subcategoryId;
@@ -109,30 +121,18 @@ export const getProducts = async (req, res) => {
     if (finalCategoryId) query.categoryId = finalCategoryId;
     if (finalSubcategoryId) query.subcategoryId = finalSubcategoryId;
 
-    const requestedSellerIds = parseSellerIdFilters({ sellerId, sellerIds });
-    const coords = parseCustomerCoordinates({ lat, lng });
     if (enforceHubOnly) {
-
+      const coords = parseCustomerCoordinates({ lat, lng });
       if (!coords.valid) {
-      return handleResponse(
-        res,
-        400,
-        "lat and lng are required for customer product visibility",
-      );
-    }
+        return handleResponse(res, 400, "lat and lng are required for customer product visibility");
+      }
+      
       const hubRows = await HubInventory.find({
         hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB",
-      })
-        .select("productId")
-        .lean();
+      }).select("productId").lean();
 
-      const hubProductIds = (hubRows || [])
-        .map((row) => row?.productId && String(row.productId))
-        .filter(Boolean);
+      const hubProductIds = (hubRows || []).map((row) => row?.productId && String(row.productId)).filter(Boolean);
 
-      // We still want to show products even if they aren't in HubInventory yet, 
-      // as long as they are 'admin' products (Master Catalog).
-      // This ensures that new catalog entries are visible for procurement.
       query.$or = [
         { _id: { $in: hubProductIds } },
         { ownerType: "admin" }
@@ -140,10 +140,14 @@ export const getProducts = async (req, res) => {
       query.status = "active";
     } else {
       if (status) query.status = status;
-      if (sellerId) query.sellerId = sellerId;
+      if (req.query.ownerType === "admin") {
+        query.ownerType = "admin";
+      } else {
+        if (sellerId) query.sellerId = sellerId;
+        if (req.query.ownerType) query.ownerType = req.query.ownerType;
+      }
     }
 
-    // Customer/user app should only see approved active products.
     if (enforceHubOnly) {
       query.status = "active";
     } else if (!status && !req.user?.role) {
@@ -182,7 +186,7 @@ export const getProducts = async (req, res) => {
 
     const products = await Product.find(query)
       .select(
-        "name slug price salePrice stock brand weight mainImage headerId categoryId subcategoryId sellerId ownerType status isFeatured createdAt",
+        "name slug price salePrice stock brand weight unit mainImage headerId categoryId subcategoryId sellerId ownerType status isFeatured variants createdAt",
       )
       .populate("headerId", "name")
       .populate("categoryId", "name")
@@ -196,65 +200,69 @@ export const getProducts = async (req, res) => {
     const hubRowsForResult = await HubInventory.find({
       productId: { $in: products.map((p) => p._id) },
       hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB",
-    })
-      .select("productId availableQty sellPrice")
-      .lean();
-    const hubMap = new Map(
-      hubRowsForResult.map((r) => [
-        String(r.productId),
-        {
-          availableQty: Number(r.availableQty || 0),
-          sellPrice: Number(r.sellPrice || 0),
-        },
-      ]),
-    );
+    }).lean();
 
+    const hubMap = new Map();
+    hubRowsForResult.forEach(r => {
+      if (r.productId) {
+        hubMap.set(String(r.productId), Number(r.hubStockQuantity || r.availableQty || 0));
+      }
+    });
 
-    // --- AGGREGATE SELLER STOCK FOR MASTER PRODUCTS ---
-    const productIds = products.map((p) => p._id);
-    const sellerStockSummary = await Product.aggregate([
-      {
-        $match: {
-          masterProductId: { $in: productIds },
-          status: "active",
-        },
-      },
-      {
-        $group: {
-          _id: "$masterProductId",
-          totalSellerStock: { $sum: "$stock" },
-        },
-      },
-    ]);
-
-    const sellerStockMap = new Map(
-      sellerStockSummary.map((s) => [String(s._id), s.totalSellerStock]),
-    );
+    const productIdsForAgg = products.map((p) => String(p._id)).filter(id => mongoose.Types.ObjectId.isValid(id));
+    
+    let sellerStockMap = new Map();
+    if (productIdsForAgg.length > 0) {
+      try {
+        const sellerStockSummary = await Product.aggregate([
+          {
+            $match: {
+              masterProductId: { $in: productIdsForAgg.map(id => new mongoose.Types.ObjectId(id)) },
+              ownerType: "seller",
+              status: "active",
+            },
+          },
+          {
+            $group: {
+              _id: "$masterProductId",
+              totalSellerStock: { $sum: "$stock" },
+            },
+          },
+        ]);
+        sellerStockSummary.forEach(s => {
+          if (s._id) sellerStockMap.set(String(s._id), Number(s.totalSellerStock || 0));
+        });
+      } catch (err) {
+        console.error("[getProducts] Aggregation Error:", err.message);
+      }
+    }
 
     const productsWithSource = products.map((p) => {
       const pIdStr = String(p._id);
-      const hubRow = hubMap.get(pIdStr) || { availableQty: 0, sellPrice: 0 };
-      const hubQty = Number(hubRow.availableQty || 0);
-      const hubSellPrice = Number(hubRow.sellPrice || 0);
       
-      const mappedSellerStock = sellerStockMap.get(pIdStr) || 0;
-      const totalAvailableQty = hubQty + mappedSellerStock;
+      if (p.ownerType === 'admin') {
+        const hubQty = hubMap.get(pIdStr) || 0;
+        const mappedSellerStock = sellerStockMap.get(pIdStr) || 0;
+        // Total = Hub Stock + Seller Stock (Master Catalog shows aggregated availability)
+        // We do not add p.stock here because p.stock is now synced with hubQty to avoid double counting.
+        const totalAvailableQty = hubQty + mappedSellerStock;
+        
+        return {
+          ...p,
+          stock: totalAvailableQty,
+          availableQtyHub: hubQty,
+          availableQtySeller: mappedSellerStock,
+          totalAvailableQty,
+          fulfillmentSource: hubQty > 0 ? "hub" : totalAvailableQty > 0 ? "procure" : "out_of_stock",
+        };
+      }
       
-      const salePrice = Number(p.salePrice || 0);
-      const catalogPrice = Number(p.price || 0);
-      const effectiveCatalogPrice =
-        salePrice > 0 && salePrice < catalogPrice ? salePrice : catalogPrice;
-      
-      const price = hubSellPrice > 0 ? hubSellPrice : effectiveCatalogPrice;
-
+      // For seller products, keep their original stock and just check if they are in Hub
+      const hubQtyForSeller = hubMap.get(pIdStr) || 0;
       return {
         ...p,
-        price,
-        hubSellPrice,
-        availableQtyHub: hubQty,
-        availableQtySeller: mappedSellerStock, 
-        totalAvailableQty, // Sum of Hub + Mapped Sellers
-        fulfillmentSource: hubQty > 0 ? "hub" : totalAvailableQty > 0 ? "procure" : "out_of_stock",
+        availableQtyHub: hubQtyForSeller,
+        fulfillmentSource: p.stock > 0 ? "direct" : "out_of_stock"
       };
     });
 
@@ -291,25 +299,38 @@ export const getSellerProducts = async (req, res) => {
       query.stock = 0;
     }
 
-    const products = await Product.find(query)
-      .select(
-        "name slug price salePrice stock brand weight mainImage headerId categoryId subcategoryId sellerId ownerType status isFeatured createdAt",
-      )
-      .populate("headerId", "name")
-      .populate("categoryId", "name")
-      .populate("subcategoryId", "name")
-      .populate("sellerId", "shopName")
+    const results = await Product.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
+      .populate("sellerId", "shopName name")
+      .populate("headerId", "name")
+      .populate("categoryId", "name")
+      .populate("subcategoryId", "name")
+      .populate({
+        path: "masterProductId",
+        select: "name sku price salePrice stock"
+      })
       .lean();
+
+    // DYNAMIC STOCK SYNC: If master product, sum Hub + Seller stocks
+    const finalItems = await Promise.all(results.map(async (p) => {
+      if (p.ownerType === 'admin') {
+        const hRows = await HubInventory.find({ productId: p._id }).lean();
+        const sRows = await Product.find({ masterProductId: p._id, ownerType: 'seller', status: 'active' }).select('stock').lean();
+        const hQty = hRows.reduce((s, r) => s + Number(r.hubStockQuantity || 0), 0);
+        const sQty = sRows.reduce((s, r) => s + Number(r.stock || 0), 0);
+        return { ...p, stock: hQty + sQty, hQty, sQty };
+      }
+      return p;
+    }));
 
     const total = await Product.countDocuments(query);
 
-    return handleResponse(res, 200, "Seller products fetched", {
-      items: products,
-      page,
-      limit,
+    return handleResponse(res, 200, "Products fetched successfully", {
+      items: finalItems,
+      page: Number(page),
+      limit: Number(limit),
       total,
       totalPages: Math.ceil(total / limit) || 1,
     });
@@ -362,23 +383,21 @@ export const createProduct = async (req, res) => {
       }
     }
 
-    // --- AUTO CATALOG LOGIC ---
+    // Typecast numbers to ensure database integrity
+    if (productData.price) productData.price = Number(productData.price);
+    if (productData.salePrice) productData.salePrice = Number(productData.salePrice);
+    if (productData.stock) productData.stock = Number(productData.stock);
+
+    // Standardize masterProductId (remove empty strings which cause BSON errors)
+    if (productData.masterProductId === "" || productData.masterProductId === "null" || !productData.masterProductId) {
+      delete productData.masterProductId;
+    }
+
+    // --- HUB-FIRST CATALOG MAPPING (Only for Sellers) ---
     if (role !== "admin") {
-      // 1. Double-Check uniqueness by NAME for the same seller (Hard block)
-      const exactNameExists = await Product.findOne({
-        sellerId: req.user.id,
-        name: { $regex: new RegExp(`^${String(productData.name || "").trim()}$`, "i") }
-      });
-      if (exactNameExists) {
-        return handleResponse(res, 400, "You already have a product with this name. Please update existing one.");
-      }
-
-      if (productData.masterProductId === "" || !productData.masterProductId) {
-        delete productData.masterProductId;
-      }
-
       if (!productData.masterProductId) {
         const normalizedName = String(productData.name || "").trim();
+        // Check if an EXACT master product already exists to auto-link
         const existingMaster = await Product.findOne({
           name: { $regex: new RegExp(`^${normalizedName}$`, "i") },
           ownerType: "admin"
@@ -390,39 +409,9 @@ export const createProduct = async (req, res) => {
           if (!productData.categoryId) productData.categoryId = existingMaster.categoryId;
           if (!productData.subcategoryId) productData.subcategoryId = existingMaster.subcategoryId;
         } else {
-          const masterSlug = await ensureUniqueSlug(productData.slug || productData.name);
-          const masterProduct = await Product.create({
-            name: productData.name,
-            slug: masterSlug,
-            sku: `M-${Date.now().toString().slice(-6)}`,
-            description: productData.description,
-            price: productData.price,
-            salePrice: productData.salePrice,
-            unit: productData.unit || "unit",
-            mainImage: productData.mainImage,
-            galleryImages: productData.galleryImages || [], // Sync all images
-            headerId: productData.headerId,
-            categoryId: productData.categoryId,
-            subcategoryId: productData.subcategoryId,
-            brand: productData.brand,
-            weight: productData.weight,
-            ownerType: "admin",
-            status: "inactive", // Stays inactive until seller product is approved
-            stock: 0, 
-            tags: productData.tags,
-          });
-          productData.masterProductId = masterProduct._id;
-
-          try {
-            await HubInventory.create({
-              hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB",
-              productId: masterProduct._id,
-              availableQty: 0,
-              status: "out_of_stock"
-            });
-          } catch (err) {
-            console.warn("Hub Inventory init failed:", err.message);
-          }
+          // IMPORTANT: We NO LONGER auto-create a master product here.
+          // The item stays as masterProductId: null until Admin maps it during approval.
+          productData.masterProductId = null;
         }
       }
 
@@ -441,8 +430,24 @@ export const createProduct = async (req, res) => {
     // Generate unique slug for seller product now, after master product (if any) is already in DB
     productData.slug = await ensureUniqueSlug(initialDesiredSlug);
 
-    const product = await Product.create(productData);
-    return handleResponse(res, 201, "Product created and sent for approval", product);
+    const product = new Product(productData);
+    await product.save();
+
+    // Ensure Admin products have an entry in Hub Inventory and sync stock
+    if (product.ownerType === "admin") {
+      try {
+        const HubInventory = mongoose.model("HubInventory");
+        await HubInventory.findOneAndUpdate(
+          { hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB", productId: product._id },
+          { availableQty: Number(product.stock || 0), reorderLevel: Number(product.lowStockAlert || 10) },
+          { upsert: true, new: true }
+        );
+      } catch (err) {
+        console.warn("[createProduct] Hub entry sync failed", err.message);
+      }
+    }
+
+    return handleResponse(res, 201, "Product created successfully", product);
   } catch (error) {
     if (error.code === 11000) return handleResponse(res, 400, "Slug or SKU already exists");
     return handleResponse(res, 500, error.message);
@@ -474,11 +479,79 @@ export const updateProduct = async (req, res) => {
       productData.status = "pending_approval";
     }
 
-    // Safety check for masterProductId in updates
+    if (typeof productData.variants === "string") {
+      try {
+        productData.variants = JSON.parse(productData.variants);
+      } catch (e) {
+        // Fallback or keep current variants
+      }
+    }
+
+    // Typecast numbers to ensure database integrity
+    if (productData.price) productData.price = Number(productData.price);
+    if (productData.salePrice) productData.salePrice = Number(productData.salePrice);
+    if (productData.stock) productData.stock = Number(productData.stock);
+
+    // Smart Mapping & Merge Logic: If masterProductId is changed by Admin
+    const oldMasterId = product.masterProductId;
+    if (role === "admin" && productData.masterProductId && String(oldMasterId) !== String(productData.masterProductId)) {
+      try {
+        const newMasterId = productData.masterProductId;
+        const targetMaster = await Product.findById(newMasterId);
+
+        if (targetMaster) {
+          // 1. Normalization: Update the seller's product name/slug to match Master Item
+          productData.name = targetMaster.name;
+          productData.slug = await ensureUniqueSlug(targetMaster.slug, product._id);
+          productData.unit = targetMaster.unit;
+          
+          // 2. Check for existing record of the same Master ID for this Seller
+          const existingSellerProduct = await Product.findOne({
+            sellerId: product.sellerId,
+            masterProductId: newMasterId,
+            _id: { $ne: product._id }
+          });
+
+          if (existingSellerProduct) {
+            // MERGE CASE: Add current stock to existing record and DELETE this one
+            const newTotalStock = (Number(existingSellerProduct.stock) || 0) + (Number(productData.stock || product.stock) || 0);
+            await Product.findByIdAndUpdate(existingSellerProduct._id, { stock: newTotalStock });
+            
+            // Delete the current duplicate product
+            await Product.findByIdAndDelete(product._id);
+
+            // Cleanup old master ghost if it was an auto-created orphan
+            const oldMaster = await Product.findById(oldMasterId);
+            if (oldMaster && oldMaster.ownerType === "admin" && oldMaster.status === "inactive") {
+              const otherSellers = await Product.countDocuments({ masterProductId: oldMasterId });
+              if (otherSellers === 0) {
+                await Product.findByIdAndDelete(oldMasterId);
+                await HubInventory.deleteOne({ productId: oldMasterId });
+              }
+            }
+
+            return handleResponse(res, 200, `Merged into existing ${targetMaster.name} listing. Duplicate removed.`);
+          }
+        }
+
+        // Cleanup old master ghost (for case where no merge was needed)
+        const oldMaster = await Product.findById(oldMasterId);
+        if (oldMaster && oldMaster.ownerType === "admin" && oldMaster.status === "inactive") {
+          const otherSellers = await Product.countDocuments({ masterProductId: oldMasterId, _id: { $ne: product._id } });
+          if (otherSellers === 0) {
+            await Product.findByIdAndDelete(oldMasterId);
+            await HubInventory.deleteOne({ productId: oldMasterId });
+          }
+        }
+      } catch (err) {
+        console.warn("Smart Merge failed", err.message);
+      }
+    }
+
+    // Standardize masterProductId in update data
     if (productData.masterProductId === "" || productData.masterProductId === "null") {
       productData.masterProductId = null;
     } else if (productData.masterProductId && typeof productData.masterProductId === "string") {
-      // If it's a string, ensure it's not empty/invalid
       if (!productData.masterProductId.trim()) {
         productData.masterProductId = null;
       }
@@ -556,14 +629,15 @@ export const updateProduct = async (req, res) => {
       { new: true, runValidators: true },
     );
 
-    // --- AUTO APPROVAL Logic for Master Product ---
-    // If admin is activating a seller product that is linked to a master product,
-    // the master product should also be active so it shows up on the app.
+    // --- AUTO APPROVAL & PRICE SYNC Logic for Master Product ---
+    // If admin is activating a seller product or changing its customer-facing price,
+    // we sync it to the master product.
     const currentStatus = (productData.status || (req.body && req.body.status) || "").toLowerCase();
-    if (role === "admin" && currentStatus === "active") {
+    const customerPrice = Number(req.body.customerPrice);
+
+    if (role === "admin") {
       let mid = updatedProduct?.masterProductId;
       
-      // Fallback: If no masterProductId is set, try to find one by name
       if (!mid) {
         const matchingMaster = await Product.findOne({
           name: { $regex: new RegExp(`^${updatedProduct.name}$`, "i") },
@@ -573,14 +647,36 @@ export const updateProduct = async (req, res) => {
       }
       
       if (mid) {
-        try {
-          await Product.findByIdAndUpdate(mid, { $set: { status: "active" } });
-          console.log(`[updateProduct] SUCCESS: Auto-activated master product ${mid} for seller product ${id}`);
-        } catch (err) {
-          console.warn("[updateProduct] ERROR: Failed to auto-approve master product:", err.message);
+        const masterUpdate = {};
+        if (currentStatus === "active") masterUpdate.status = "active";
+        // If admin provided a specific customerPrice, update the Master Product's price
+        if (!isNaN(customerPrice) && customerPrice > 0) {
+          masterUpdate.price = customerPrice;
+          masterUpdate.salePrice = customerPrice; // Set both for consistency
         }
-      } else {
-        console.log(`[updateProduct] INFO: No master product found (by ID or name) for product ${id}.`);
+
+        if (Object.keys(masterUpdate).length > 0) {
+          try {
+            await Product.findByIdAndUpdate(mid, { $set: masterUpdate });
+            console.log(`[updateProduct] SUCCESS: Synced Master Product ${mid} (Status: ${masterUpdate.status}, Price: ${customerPrice})`);
+          } catch (err) {
+            console.warn("[updateProduct] ERROR: Failed to sync master product:", err.message);
+          }
+        }
+      }
+    }
+
+    // Ensure Admin products have an entry in Hub Inventory and sync stock
+    if (updatedProduct.ownerType === "admin") {
+      try {
+        const HubInventory = mongoose.model("HubInventory");
+        await HubInventory.findOneAndUpdate(
+          { hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB", productId: updatedProduct._id },
+          { availableQty: Number(updatedProduct.stock || 0), reorderLevel: Number(updatedProduct.lowStockAlert || 10) },
+          { upsert: true }
+        );
+      } catch (err) {
+        console.warn("[updateProduct] Hub entry sync failed", err.message);
       }
     }
 

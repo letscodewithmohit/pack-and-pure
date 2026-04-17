@@ -222,16 +222,34 @@ const DashboardLayout = ({ children, navItems, title }) => {
         return () => clearInterval(timer);
     }, [newOrderAlert]);
 
-    const handleAcceptOrder = async (orderId) => {
+    const handleAcceptOrder = async (order) => {
+        const orderId = order.orderId;
         try {
-            await sellerApi.updateOrderStatus(orderId, { status: 'confirmed' });
-            toast.success(`Order #${orderId} Accepted!`);
+            // Check if this is a Hub-First order that needs procurement response
+            if (order.hubFlowEnabled) {
+                // Find the associated purchase request for this seller
+                const prRes = await sellerApi.getPurchaseRequests({ orderId });
+                const prs = prRes.data?.result?.items || prRes.data?.results || [];
+                const myPr = prs.find(p => p.status === 'created' || p.status === 'pending');
+
+                if (myPr) {
+                    await sellerApi.respondPurchaseRequest(myPr._id, { action: 'accept' });
+                    toast.success(`Purchase Request for #${orderId} Accepted!`);
+                } else {
+                    // Fallback to standard status update if no PR found but hubFlow is on
+                    await sellerApi.updateOrderStatus(orderId, { status: 'confirmed' });
+                    toast.success(`Order #${orderId} Accepted (Direct)!`);
+                }
+            } else {
+                // Standard Direct Seller Flow
+                await sellerApi.updateOrderStatus(orderId, { status: 'confirmed' });
+                toast.success(`Order #${orderId} Accepted!`);
+            }
+            
             setNewOrderAlert(null);
             refreshOrders();
         } catch (error) {
-            const msg =
-                error?.response?.data?.message ||
-                "Failed to accept order";
+            const msg = error?.response?.data?.message || "Failed to accept order";
             toast.error(msg);
         }
     };
@@ -334,7 +352,7 @@ const DashboardLayout = ({ children, navItems, title }) => {
                                         Decline
                                     </button>
                                     <button
-                                        onClick={() => handleAcceptOrder(newOrderAlert.orderId)}
+                                        onClick={() => handleAcceptOrder(newOrderAlert)}
                                         className="flex items-center justify-center gap-2 py-4 rounded-2xl bg-primary text-white font-bold hover:bg-primary/90 shadow-xl shadow-primary/20 transition-all active:scale-95"
                                     >
                                         <Check className="h-5 w-5" />

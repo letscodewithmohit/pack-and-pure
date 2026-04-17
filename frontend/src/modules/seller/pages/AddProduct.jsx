@@ -18,6 +18,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import axiosInstance from "@core/api/axios";
 import { sellerApi } from "../services/sellerApi";
 
 
@@ -35,6 +36,7 @@ const AddProduct = () => {
     salePrice: "",
     stock: "",
     lowStockAlert: 5,
+    unit: "Pieces",
     category: "",
     subcategory: "",
     header: "",
@@ -60,6 +62,9 @@ const AddProduct = () => {
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [isBrowseModalOpen, setIsBrowseModalOpen] = useState(false);
+  const [masterCatalog, setMasterCatalog] = useState([]);
+  const [isCatalogLoading, setIsCatalogLoading] = useState(false);
   const suggestionsRef = useRef(null);
 
   useEffect(() => {
@@ -156,6 +161,8 @@ const AddProduct = () => {
         data.append("masterProductId", formData.masterProductId);
       }
 
+      data.append("unit", formData.unit);
+      
       await sellerApi.createProduct(data);
       toast.success("Product saved successfully!");
       navigate("/seller/products");
@@ -201,10 +208,11 @@ const AddProduct = () => {
 
     setIsSearching(true);
     try {
-      // Fetching from general product list (filtered by ownerType=admin ideally)
-      const res = await sellerApi.getProducts({ search: val, limit: 10 });
+      // Fetch specifically from Admin products (Master Catalog) using global endpoint
+      const res = await axiosInstance.get('/products', { 
+        params: { search: val, limit: 20, ownerType: 'admin', status: 'active' } 
+      });
       const items = res.data?.result?.items || res.data?.items || [];
-      // Filter only admin/master products if they are mixed
       setSuggestions(items);
       setShowSuggestions(true);
     } catch (err) {
@@ -214,20 +222,36 @@ const AddProduct = () => {
     }
   };
 
+  const fetchMasterCatalog = async () => {
+    setIsBrowseModalOpen(true);
+    setIsCatalogLoading(true);
+    try {
+      const res = await axiosInstance.get('/products', { 
+        params: { limit: 100, ownerType: 'admin', status: 'active' } 
+      });
+      const items = res.data?.result?.items || res.data?.items || [];
+      setMasterCatalog(items);
+    } catch (err) {
+      toast.error("Failed to load catalog");
+    } finally {
+      setIsCatalogLoading(false);
+    }
+  };
+
   const selectSuggestion = (prod) => {
     setFormData(prev => ({
       ...prev,
       name: prod.name,
+      description: prod.description || '',
       masterProductId: prod._id,
-      description: prod.description || prev.description,
-      brand: prod.brand || prev.brand,
-      header: prod.headerId?._id || prod.headerId || prev.header,
-      category: prod.categoryId?._id || prod.categoryId || prev.category,
-      subcategory: prod.subcategoryId?._id || prod.subcategoryId || prev.subcategory,
-      weight: prod.weight || prev.weight,
-      tags: Array.isArray(prod.tags) ? prod.tags.join(", ") : (prod.tags || prev.tags),
-      // Optional: use master image as placeholder?
-      mainImage: prod.mainImage || prev.mainImage
+      brand: prod.brand || '',
+      header: prod.headerId?._id || prod.headerId || '',
+      category: prod.categoryId?._id || prod.categoryId || '',
+      subcategory: prod.subcategoryId?._id || prod.subcategoryId || '',
+      weight: prod.weight || '',
+      unit: prod.unit || 'Pieces',
+      tags: Array.isArray(prod.tags) ? prod.tags.join(", ") : (prod.tags || ''),
+      mainImage: prod.mainImage || null
     }));
     setShowSuggestions(false);
   };
@@ -323,13 +347,18 @@ const AddProduct = () => {
                       "w-full px-4 py-2.5 bg-slate-100 border-none rounded-md text-sm font-semibold outline-none ring-primary/5 focus:ring-2 transition-all",
                       formData.masterProductId && "ring-2 ring-emerald-500/20 bg-emerald-50/30"
                     )}
-                    placeholder="e.g. Premium Basmati Rice"
+                    placeholder="Search catalog or type a name..."
                   />
-                  {isSearching && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                      <HiOutlineArrowPath className="h-4 w-4 text-slate-400 animate-spin" />
-                    </div>
-                  )}
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                    {isSearching && <HiOutlineArrowPath className="h-4 w-4 text-slate-400 animate-spin" />}
+                    <button 
+                       type="button"
+                       onClick={fetchMasterCatalog}
+                       className="px-2 py-1 bg-white border border-slate-200 rounded text-[9px] font-black text-slate-500 hover:text-primary hover:border-primary transition-all shadow-sm"
+                    >
+                      BROWSE ALL
+                    </button>
+                  </div>
                 </div>
 
                 {/* Suggestions Dropdown */}
@@ -367,6 +396,91 @@ const AddProduct = () => {
                   </div>
                 )}
               </div>
+
+              {/* Browse Catalog Modal Overlay */}
+              {isBrowseModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+                  <div className="bg-white w-full max-w-4xl max-h-[85vh] rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+                    <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                      <div>
+                        <h3 className="text-lg font-black text-slate-900 tracking-tight">Master Catalog</h3>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Select a product to sell from hub inventory</p>
+                      </div>
+                      <button 
+                        onClick={() => setIsBrowseModalOpen(false)}
+                        className="p-2 hover:bg-white rounded-full transition-all"
+                      >
+                        <HiOutlinePlus className="h-6 w-6 text-slate-400 rotate-45" />
+                      </button>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-slate-200 bg-slate-50/30">
+                      {isCatalogLoading ? (
+                        <div className="flex flex-col items-center justify-center py-20 gap-4">
+                          <HiOutlineArrowPath className="h-10 w-10 text-primary animate-spin" />
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic tracking-wider">Loading Master Catalog...</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {masterCatalog.map(p => (
+                            <div 
+                              key={p._id}
+                              className="group p-3 bg-white rounded-2xl border border-slate-100 hover:border-primary/40 hover:shadow-lg transition-all cursor-pointer flex items-center justify-between gap-4"
+                              onClick={() => {
+                                selectSuggestion(p);
+                                setIsBrowseModalOpen(false);
+                              }}
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className="h-16 w-16 min-w-[64px] rounded-xl bg-slate-50 border border-slate-100 overflow-hidden">
+                                  <img src={p.mainImage} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors">{p.name}</p>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md uppercase tracking-wide">
+                                      {p.categoryId?.name || 'Catalog'}
+                                    </span>
+                                    <span className="text-[10px] font-medium text-slate-400 italic">Code: {p.sku || 'N/A'}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center gap-6 pr-2">
+                                <div className="text-right">
+                                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Reference Price</p>
+                                  <p className="text-sm font-black text-primary italic">₹{p.price}</p>
+                                </div>
+                                <button className="px-4 py-2 bg-primary text-white text-[10px] font-black uppercase rounded-xl hover:bg-primary-600 transition-all shadow-md shadow-primary/20">
+                                  SELL THIS
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1.5 flex flex-col">
+                <label className="text-[10px] sm:text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">Measurement Unit <span className="text-rose-500">*</span></label>
+                <select
+                  value={formData.unit}
+                  onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold outline-none cursor-pointer"
+                >
+                  <option value="Pieces">Pieces</option>
+                  <option value="kg">Kilograms (kg)</option>
+                  <option value="g">Grams (g)</option>
+                  <option value="L">Liters (L)</option>
+                  <option value="ml">Milliliters (ml)</option>
+                  <option value="Pack">Pack</option>
+                  <option value="Box">Box</option>
+                  <option value="Bundle">Bundle</option>
+                </select>
+              </div>
               <div className="space-y-1.5 flex flex-col">
                 <label className="text-[10px] sm:text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">
                   About this item
@@ -376,10 +490,8 @@ const AddProduct = () => {
                   onChange={(e) =>
                     setFormData({ ...formData, description: e.target.value })
                   }
-                  onWheel={(e) => e.stopPropagation()}
-                  onTouchMove={(e) => e.stopPropagation()}
-                  className="w-full px-4 py-3 bg-slate-100 border-none rounded-2xl text-sm font-semibold min-h-[160px] max-h-[260px] outline-none transition-all focus:ring-2 focus:ring-primary/5 resize-none overflow-y-auto custom-scrollbar"
-                  placeholder="Describe the item here..."
+                  className="w-full px-4 py-3 bg-slate-100 border-none rounded-2xl text-sm font-medium min-h-[160px] outline-none transition-all focus:ring-2 focus:ring-primary/10 resize-none overflow-y-auto"
+                  placeholder="Describe the item here. If you selected from catalog, the master description will appear here..."
                 />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

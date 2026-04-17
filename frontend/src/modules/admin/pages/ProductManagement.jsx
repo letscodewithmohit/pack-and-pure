@@ -27,6 +27,8 @@ import Modal from '@shared/components/ui/Modal';
 import Pagination from '@shared/components/ui/Pagination';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { HiOutlineLink } from 'react-icons/hi2';
+import axiosInstance from '@core/api/axios';
 
 const ProductManagement = () => {
     const [products, setProducts] = useState([]);
@@ -39,7 +41,8 @@ const ProductManagement = () => {
 
     const [searchTerm, setSearchTerm] = useState('');
     const [filterCategory, setFilterCategory] = useState('all');
-    const [filterStatus, setFilterStatus] = useState('all'); // Added filterStatus
+    const [filterStatus, setFilterStatus] = useState('all');
+    const [activeTab, setActiveTab] = useState('master'); // Default to Master Catalog
 
     const [isProductModalOpen, setIsProductModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -56,7 +59,7 @@ const ProductManagement = () => {
         salePrice: '',
         stock: '',
         lowStockAlert: 5,
-        unit: 'packet',
+        unit: 'Pieces',
         header: '',
         categoryId: '',
         subcategoryId: '',
@@ -79,6 +82,44 @@ const ProductManagement = () => {
     const [imageFiles, setImageFiles] = useState([]);
     const [previews, setPreviews] = useState([]);
 
+    const [isSearchingMaster, setIsSearchingMaster] = useState(false);
+    const [masterSuggestions, setMasterSuggestions] = useState([]);
+    const [showMasterSuggestions, setShowMasterSuggestions] = useState(false);
+
+    const searchMasterCatalog = async (val) => {
+        if (val.trim().length < 2) {
+            setMasterSuggestions([]);
+            setShowMasterSuggestions(false);
+            return;
+        }
+        setIsSearchingMaster(true);
+        try {
+            const res = await axiosInstance.get('/products', {
+                params: { search: val, ownerType: 'admin', limit: 10 }
+            });
+            const items = res.data?.result?.items || res.data?.items || [];
+            setMasterSuggestions(items);
+            setShowMasterSuggestions(true);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setIsSearchingMaster(false);
+        }
+    };
+
+    const handleMasterLink = (master) => {
+        setFormData(prev => ({
+            ...prev,
+            masterProductId: master._id,
+            // Sync categories if admin wants to unify data
+            categoryId: master.categoryId?._id || master.categoryId,
+            subcategoryId: master.subcategoryId?._id || master.subcategoryId,
+            header: master.headerId?._id || master.headerId,
+        }));
+        setShowMasterSuggestions(false);
+        toast.success(`Linked to Master: ${master.name}`);
+    };
+
     const fetchCategories = async () => {
         try {
             const response = await adminApi.getCategoryTree();
@@ -97,6 +138,9 @@ const ProductManagement = () => {
             if (searchTerm) params.search = searchTerm;
             if (filterCategory !== 'all') params.category = filterCategory;
             if (filterStatus !== 'all') params.status = filterStatus;
+            
+            // Filter by ownerType based on active tab
+            params.ownerType = activeTab === 'master' ? 'admin' : 'seller';
 
             const response = await adminApi.getProducts(params);
             if (response.data.success) {
@@ -122,7 +166,7 @@ const ProductManagement = () => {
             fetchProducts(1);
         }, 500); // Debounce search
         return () => clearTimeout(timer);
-    }, [searchTerm, filterCategory, filterStatus, pageSize]);
+    }, [searchTerm, filterCategory, filterStatus, pageSize, activeTab]);
 
     const buildProductFormData = () => {
         const data = new FormData();
@@ -144,6 +188,9 @@ const ProductManagement = () => {
         data.append('weight', formData.weight);
         data.append('tags', formData.tags);
         data.append('masterProductId', formData.masterProductId || '');
+        if (formData.customerPrice) {
+            data.append('customerPrice', Number(formData.customerPrice));
+        }
         data.append('variants', JSON.stringify(formData.variants));
 
         if (formData.mainImageFile) {
@@ -156,13 +203,74 @@ const ProductManagement = () => {
     };
 
     const handleSave = async () => {
-        if (!formData.name || !formData.price || !formData.stock || !formData.header || !formData.categoryId || !formData.subcategoryId) {
-            return toast.error('Please fill all required fields, including categories');
-        }
-
         setIsSaving(true);
         try {
-            const data = buildProductFormData();
+            // Final sync check: ensure root fields match the first variant
+            let finalPrice = formData.price;
+            let finalStock = formData.stock;
+            let finalSalePrice = formData.salePrice;
+
+            if (formData.variants && formData.variants.length > 0) {
+                const firstVar = formData.variants[0];
+                finalPrice = firstVar.price || finalPrice;
+                finalStock = firstVar.stock || finalStock;
+                finalSalePrice = firstVar.salePrice || finalSalePrice;
+            }
+
+            const data = new FormData();
+            
+            // Required fields validation
+            if (!formData.name || !finalPrice || finalStock === '' || !formData.header || !formData.categoryId) {
+                setIsSaving(false);
+                return toast.error('Required fields missing: Name, Price, Stock or Category');
+            }
+
+            // Explicitly prepare the payload to avoid circular references or invalid types
+            const payload = {
+                name: String(formData.name || '').trim(),
+                slug: String(formData.slug || '').trim(),
+                sku: String(formData.sku || '').trim(),
+                description: String(formData.description || '').trim(),
+                price: Number(finalPrice) || 0,
+                salePrice: Number(finalSalePrice) || 0,
+                stock: Number(finalStock) || 0,
+                lowStockAlert: Number(formData.lowStockAlert) || 5,
+                unit: formData.unit || 'Pieces',
+                headerId: formData.header,
+                categoryId: formData.categoryId,
+                subcategoryId: formData.subcategoryId,
+                brand: String(formData.brand || '').trim(),
+                weight: String(formData.weight || '').trim(),
+                status: formData.status || 'active',
+                isFeatured: !!formData.isFeatured,
+                tags: formData.tags,
+                masterProductId: formData.masterProductId || null
+            };
+
+            // Append base fields
+            Object.keys(payload).forEach(key => {
+                if (payload[key] !== null && payload[key] !== undefined) {
+                    data.append(key, payload[key]);
+                }
+            });
+
+            // Append variants separately as a clean stringified array
+            if (formData.variants && formData.variants.length > 0) {
+                const cleanVariants = formData.variants.map(v => ({
+                    name: v.name || 'Default',
+                    price: Number(v.price) || 0,
+                    salePrice: Number(v.salePrice) || 0,
+                    stock: Number(v.stock) || 0,
+                    sku: v.sku || ''
+                }));
+                data.append('variants', JSON.stringify(cleanVariants));
+            }
+
+            if (formData.mainImageFile) data.append('mainImage', formData.mainImageFile);
+            if (formData.galleryFiles?.length > 0) {
+                formData.galleryFiles.forEach(f => data.append('galleryImages', f));
+            }
+
             if (editingItem?._id) {
                 await adminApi.updateProduct(editingItem._id, data);
                 toast.success('Product updated successfully');
@@ -173,6 +281,7 @@ const ProductManagement = () => {
             setIsProductModalOpen(false);
             fetchProducts(editingItem?._id ? page : 1);
         } catch (error) {
+            console.error("Save Error:", error);
             toast.error(error.response?.data?.message || 'Failed to save product');
         } finally {
             setIsSaving(false);
@@ -231,7 +340,7 @@ const ProductManagement = () => {
                 salePrice: item.salePrice || item.discountPrice || '',
                 stock: item.stock || '',
                 lowStockAlert: item.lowStockAlert || 5,
-                unit: item.unit || 'packet',
+                unit: item.unit || 'Pieces',
                 header: item.headerId?._id || item.headerId || '',
                 categoryId: item.categoryId?._id || item.categoryId || '',
                 subcategoryId: item.subcategoryId?._id || item.subcategoryId || '',
@@ -243,6 +352,7 @@ const ProductManagement = () => {
                 masterProductId: item.masterProductId || '',
                 mainImage: item.mainImage || null,
                 galleryImages: item.galleryImages || [],
+                customerPrice: item.masterProductId?.price || item.masterProductId?.salePrice || '',
                 variants: (item.variants && item.variants.length > 0) ? item.variants.map(v => ({ ...v, id: v._id || Date.now() })) : [
                     {
                         id: Date.now(),
@@ -258,14 +368,15 @@ const ProductManagement = () => {
             setEditingItem(item);
         } else {
             setFormData({
-                name: '', slug: '', sku: '', description: '', price: '',
-                salePrice: '', stock: '', lowStockAlert: 5, unit: 'packet',
+                name: '', slug: '', sku: '', description: '', price: 0,
+                salePrice: 0, stock: 0, lowStockAlert: 5, unit: 'Pieces',
                 header: '', categoryId: '', subcategoryId: '', status: 'active',
                 isFeatured: false, tags: '', weight: '', brand: '',
                 masterProductId: '',
                 mainImage: null, galleryImages: [],
+                customerPrice: '',
                 variants: [
-                    { id: Date.now(), name: 'Default', price: '', salePrice: '', stock: '', sku: '' }
+                    { id: Date.now(), name: 'Default', price: 0, salePrice: 0, stock: 0, sku: '' }
                 ]
             });
             setPreviews([]);
@@ -317,7 +428,37 @@ const ProductManagement = () => {
                     className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-white shadow-sm hover:bg-slate-800"
                 >
                     <HiOutlinePlus className="h-4 w-4" />
-                    Add Product
+                    {activeTab === 'master' ? 'Add Master Product' : 'Add Seller Product'}
+                </button>
+            </div>
+
+            {/* Tab Navigation */}
+            <div className="flex items-center gap-1 p-1 bg-slate-100/80 backdrop-blur rounded-2xl w-full lg:w-fit mt-2">
+                <button
+                    onClick={() => setActiveTab('master')}
+                    className={cn(
+                        "flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-tight transition-all",
+                        activeTab === 'master' 
+                            ? "bg-white text-primary shadow-sm" 
+                            : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                    )}
+                >
+                    <HiOutlineCheckCircle className={cn("h-4 w-4", activeTab === 'master' ? "text-primary" : "text-slate-400")} />
+                    Master Catalog
+                    {activeTab === 'master' && <Badge variant="primary" className="ml-1 text-[8px] px-1 animate-pulse">Live App</Badge>}
+                </button>
+                <button
+                    onClick={() => setActiveTab('seller')}
+                    className={cn(
+                        "flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-tight transition-all",
+                        activeTab === 'seller' 
+                            ? "bg-white text-primary shadow-sm" 
+                            : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                    )}
+                >
+                    <HiOutlineSquaresPlus className={cn("h-4 w-4", activeTab === 'seller' ? "text-primary" : "text-slate-400")} />
+                    Seller Inventory
+                    {activeTab === 'seller' && <Badge variant="warning" className="ml-1 text-[8px] px-1">Supply</Badge>}
                 </button>
             </div>
 
@@ -637,16 +778,101 @@ const ProductManagement = () => {
                                     {modalTab === 'general' && (
                                         <div className="ds-section-spacing animate-in fade-in slide-in-from-right-2 duration-300">
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                <div className="space-y-1.5 flex flex-col">
-                                                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Product Title</label>
-                                                    <input
-                                                        value={formData.name}
-                                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                                        className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-semibold outline-none ring-primary/5 focus:ring-2"
-                                                        placeholder="e.g. Premium Basmati Rice"
-                                                    />
-                                                </div>
-                                                <div className="space-y-1.5 flex flex-col">
+                                                    <div className="space-y-1.5 flex flex-col">
+                                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Product Title</label>
+                                                        <input
+                                                            value={formData.name}
+                                                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                                            className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-semibold outline-none ring-primary/5 focus:ring-2"
+                                                            placeholder="e.g. Premium Basmati Rice"
+                                                        />
+                                                    </div>
+
+                                                    {/* MASTER CATALOG MAPPING - Only for Seller Products */}
+                                                    {editingItem?.ownerType === 'seller' && (
+                                                        <div className="col-span-full p-4 bg-slate-900 rounded-3xl border border-slate-700/50 shadow-2xl relative overflow-visible group pb-2">
+                                                             <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                                                                <HiOutlineLink className="h-20 w-20 text-white rotate-12" />
+                                                            </div>
+
+                                                            <div className="relative z-10 flex flex-col gap-4">
+                                                                <div className="flex items-center justify-between">
+                                                                    <div>
+                                                                        <h4 className="text-sm font-black text-white italic tracking-tight">Hub-First Mapping</h4>
+                                                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Link this item to a Master Catalog Product</p>
+                                                                    </div>
+                                                                    {formData.masterProductId ? (
+                                                                        <Badge variant="success" className="px-3 py-1 text-[8px] font-black uppercase italic bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Currently Linked</Badge>
+                                                                    ) : (
+                                                                        <Badge variant="warning" className="px-3 py-1 text-[8px] font-black uppercase italic animate-pulse">Unlinked Item</Badge>
+                                                                    )}
+                                                                </div>
+
+                                                                <div className="relative">
+                                                                    <div className="relative group">
+                                                                        <HiOutlineMagnifyingGlass className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 group-focus-within:text-primary transition-all" />
+                                                                        <input
+                                                                            type="text"
+                                                                            autoComplete="off"
+                                                                            name="master-search-admin"
+                                                                            placeholder="Search Master Product by name..."
+                                                                            onChange={(e) => searchMasterCatalog(e.target.value)}
+                                                                            className="w-full pl-11 pr-4 py-3.5 bg-slate-800/50 border border-slate-700 rounded-2xl text-[13px] font-bold text-white placeholder:text-slate-600 outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                                                                        />
+                                                                        {isSearchingMaster && <HiOutlineArrowPath className="absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-primary animate-spin" />}
+                                                                    </div>
+
+                                                                    {showMasterSuggestions && masterSuggestions.length > 0 && (
+                                                                        <div className="absolute top-full left-0 right-0 z-[9999] mt-2 bg-slate-900 border border-slate-700 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden max-h-[350px] overflow-y-auto backdrop-blur-2xl ring-2 ring-primary/20">
+                                                                            <div className="p-2 border-b border-slate-800 bg-slate-800/50">
+                                                                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest px-2 italic">Matching Master Products</span>
+                                                                            </div>
+                                                                            {masterSuggestions.map(m => (
+                                                                                <button
+                                                                                    key={m._id}
+                                                                                    type="button"
+                                                                                    onClick={() => handleMasterLink(m)}
+                                                                                    className="w-full flex items-center gap-4 px-5 py-4 hover:bg-white/10 transition-all text-left border-b border-slate-800/50 last:border-0 group/sm"
+                                                                                >
+                                                                                    <div className="h-12 w-12 min-w-[48px] rounded-xl bg-slate-800 border border-slate-700 overflow-hidden shadow-inner transform group-hover/sm:scale-105 transition-transform">
+                                                                                        <img src={m.mainImage} alt="" className="h-full w-full object-cover opacity-90 group-hover/sm:opacity-100 transition-opacity" />
+                                                                                    </div>
+                                                                                    <div className="flex-1">
+                                                                                        <p className="text-[13px] font-black text-white group-hover/sm:text-primary transition-colors tracking-tight italic">{m.name}</p>
+                                                                                        <div className="flex items-center gap-2 mt-1">
+                                                                                            <span className="text-[9px] font-bold text-slate-500 bg-slate-800/50 px-2 py-0.5 rounded-md uppercase tracking-widest">{m.categoryId?.name || 'Master Catalog'}</span>
+                                                                                            <span className="text-[9px] font-bold text-slate-500">·</span>
+                                                                                            <span className="text-[10px] font-black text-emerald-500 italic">Live Admin Item</span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="opacity-0 group-hover/sm:opacity-100 transition-opacity">
+                                                                                        <HiOutlinePlus className="h-5 w-5 text-primary" />
+                                                                                    </div>
+                                                                                </button>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                
+                                                                {formData.masterProductId && (
+                                                                    <div className="mt-2 flex items-center justify-between p-3 bg-emerald-500/5 rounded-2xl border border-emerald-500/10">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <HiOutlineLink className="h-4 w-4 text-emerald-400" />
+                                                                            <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest italic">Success: Mapping confirmed</span>
+                                                                        </div>
+                                                                        <button 
+                                                                            onClick={() => setFormData({ ...formData, masterProductId: null })}
+                                                                            className="text-[9px] font-black text-slate-500 hover:text-rose-500 uppercase tracking-widest underline decoration-dotted transition-colors"
+                                                                        >
+                                                                            Clear Link
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    <div className="space-y-1.5 flex flex-col">
                                                     <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Web Address</label>
                                                     <div className="flex items-center bg-slate-50 rounded-xl px-4 py-2.5">
                                                         <span className="text-[10px] text-slate-400 font-bold mr-1">/product/</span>
@@ -657,6 +883,23 @@ const ProductManagement = () => {
                                                             placeholder="premium-basmati-rice"
                                                         />
                                                     </div>
+                                                </div>
+                                                <div className="space-y-1.5 flex flex-col">
+                                                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Measurement Unit <span className="text-rose-500">*</span></label>
+                                                    <select
+                                                        value={formData.unit}
+                                                        onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                                                        className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold outline-none cursor-pointer"
+                                                    >
+                                                        <option value="Pieces">Pieces</option>
+                                                        <option value="kg">Kilograms (kg)</option>
+                                                        <option value="g">Grams (g)</option>
+                                                        <option value="L">Liters (L)</option>
+                                                        <option value="ml">Milliliters (ml)</option>
+                                                        <option value="Pack">Pack</option>
+                                                        <option value="Box">Box</option>
+                                                        <option value="Bundle">Bundle</option>
+                                                    </select>
                                                 </div>
                                             </div>
                                             <div className="space-y-1.5 flex flex-col">
@@ -816,9 +1059,12 @@ const ProductManagement = () => {
                                                             type="number"
                                                             value={v.price}
                                                             onChange={e => {
+                                                                const val = e.target.value;
                                                                 const news = [...formData.variants];
-                                                                news[i].price = e.target.value;
-                                                                setFormData({ ...formData, variants: news });
+                                                                news[i].price = val;
+                                                                const update = { ...formData, variants: news };
+                                                                if (i === 0) update.price = val;
+                                                                setFormData(update);
                                                             }}
                                                             placeholder="Price"
                                                             className="bg-white px-3 py-2 rounded-xl text-xs ring-1 ring-slate-100 outline-none"
@@ -827,9 +1073,12 @@ const ProductManagement = () => {
                                                             type="number"
                                                             value={v.stock}
                                                             onChange={e => {
+                                                                const val = e.target.value;
                                                                 const news = [...formData.variants];
-                                                                news[i].stock = e.target.value;
-                                                                setFormData({ ...formData, variants: news });
+                                                                news[i].stock = val;
+                                                                const update = { ...formData, variants: news };
+                                                                if (i === 0) update.stock = val;
+                                                                setFormData(update);
                                                             }}
                                                             placeholder="Stock"
                                                             className="bg-white px-3 py-2 rounded-xl text-xs ring-1 ring-slate-100 outline-none"
@@ -878,9 +1127,12 @@ const ProductManagement = () => {
                                                                     type="number"
                                                                     value={variant.price}
                                                                     onChange={(e) => {
+                                                                        const val = e.target.value;
                                                                         const newVariants = [...formData.variants];
-                                                                        newVariants[idx].price = e.target.value;
-                                                                        setFormData({ ...formData, variants: newVariants });
+                                                                        newVariants[idx].price = val;
+                                                                        const update = { ...formData, variants: newVariants };
+                                                                        if (idx === 0) update.price = val;
+                                                                        setFormData(update);
                                                                     }}
                                                                     placeholder="0.00"
                                                                     className="w-full px-3 py-2 bg-white ring-1 ring-slate-200 border-none rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-primary/10"
@@ -892,9 +1144,12 @@ const ProductManagement = () => {
                                                                     type="number"
                                                                     value={variant.salePrice}
                                                                     onChange={(e) => {
+                                                                        const val = e.target.value;
                                                                         const newVariants = [...formData.variants];
-                                                                        newVariants[idx].salePrice = e.target.value;
-                                                                        setFormData({ ...formData, variants: newVariants });
+                                                                        newVariants[idx].salePrice = val;
+                                                                        const update = { ...formData, variants: newVariants };
+                                                                        if (idx === 0) update.salePrice = val;
+                                                                        setFormData(update);
                                                                     }}
                                                                     placeholder="0.00"
                                                                     className="w-full px-3 py-2 bg-emerald-50/50 ring-1 ring-emerald-100 border-none rounded-lg text-xs font-bold text-emerald-700 outline-none focus:ring-2 focus:ring-emerald-200"
@@ -906,9 +1161,12 @@ const ProductManagement = () => {
                                                                     type="number"
                                                                     value={variant.stock}
                                                                     onChange={(e) => {
+                                                                        const val = e.target.value;
                                                                         const newVariants = [...formData.variants];
-                                                                        newVariants[idx].stock = e.target.value;
-                                                                        setFormData({ ...formData, variants: newVariants });
+                                                                        newVariants[idx].stock = val;
+                                                                        const update = { ...formData, variants: newVariants };
+                                                                        if (idx === 0) update.stock = val;
+                                                                        setFormData(update);
                                                                     }}
                                                                     placeholder="0"
                                                                     className="w-full px-3 py-2 bg-white ring-1 ring-slate-200 border-none rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-primary/10"

@@ -416,6 +416,34 @@ export const markAssignmentPicked = async (req, res) => {
     };
     await pr.save();
 
+    // --- DEDUCT SELLER STOCK ---
+    try {
+      const Product = (await import("../models/product.js")).default;
+      for (const item of pr.items) {
+        if (item.productId && item.shortageQty > 0) {
+          // We must find the seller-specific product, not the master one.
+          // The PR's items often have the Master Product ID, but we need to find 
+          // the Seller's version of it to deduct stock.
+          const sellerProduct = await Product.findOne({
+            sellerId: pr.vendorId?._id || pr.vendorId,
+            $or: [
+              { _id: item.productId },
+              { masterProductId: item.productId }
+            ]
+          });
+
+          if (sellerProduct) {
+            await Product.findByIdAndUpdate(sellerProduct._id, {
+              $inc: { stock: -Number(item.shortageQty) }
+            });
+            console.log(`[InventorySync] Deducted ${item.shortageQty} from Seller ${pr.vendorId} for product ${sellerProduct._id}`);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[InventorySync] Failed to deduct seller stock:", err.message);
+    }
+
     return handleResponse(res, 200, "Pickup marked successfully", pr);
   } catch (error) {
     return handleResponse(res, 500, error.message);

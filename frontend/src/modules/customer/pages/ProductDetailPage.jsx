@@ -54,36 +54,35 @@ const ProductDetailPage = () => {
     const { toggleWishlist: toggleWishlistGlobal, isInWishlist } = useWishlist();
     const { showToast } = useToast();
 
-    // Find product or use a robust fallback for demo purposes
-    const product = allProducts.find(p => p.id === parseInt(id)) || {
-        id: parseInt(id),
-        name: 'Fresh Premium Product',
-        category: 'Essentials',
-        price: 99,
-        originalPrice: 149,
-        description: "This premium quality product is sourced directly from certified organic farms. We ensure the highest standards of freshness and hygiene during packaging to deliver only the best to your doorstep.",
-        images: [
-            'https://images.unsplash.com/photo-1542838132-92c53300491e?q=80&w=600&auto=format&fit=crop',
-            'https://images.unsplash.com/photo-1506484334306-0d536ee18ec3?q=80&w=600&auto=format&fit=crop',
-            'https://images.unsplash.com/photo-1628088062854-d1870b4553da?q=80&w=600&auto=format&fit=crop'
-        ],
-        details: [
-            { label: 'Shelf Life', value: '5-7 Days' },
-            { label: 'Storage', value: 'Fresh Section' },
-            { label: 'Weight', value: '1 Unit' }
-        ]
-    };
-
-    const [activeImage, setActiveImage] = useState(product.images[0]);
-    const cartItem = cart.find(item => item.id === product.id);
-    const quantity = cartItem ? cartItem.quantity : 0;
-    const isWishlisted = isInWishlist(product.id);
+    const [product, setProduct] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [reviews, setReviews] = useState([]);
+    const [reviewLoading, setReviewLoading] = useState(false);
+    const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+    const [newReview, setNewReview] = useState({ rating: 5, comment: '' });
 
     useEffect(() => {
         if (id) {
+            fetchProduct();
             fetchReviews();
         }
     }, [id]);
+
+    const fetchProduct = async () => {
+        try {
+            setLoading(true);
+            const res = await customerApi.getProductById(id);
+            if (res.data.success) {
+                setProduct(res.data.result);
+                if (res.data.result.images?.length > 0) setActiveImage(res.data.result.images[0]);
+                else if (res.data.result.mainImage) setActiveImage(res.data.result.mainImage);
+            }
+        } catch (error) {
+            console.error("Fetch product error:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const fetchReviews = async () => {
         try {
@@ -130,6 +129,42 @@ const ProductDetailPage = () => {
         );
     };
 
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+                <div className="h-12 w-12 border-4 border-[#0c831f] border-t-transparent rounded-full animate-spin"></div>
+                <p className="font-black text-slate-400 uppercase tracking-widest text-xs">Loading Product...</p>
+            </div>
+        );
+    }
+
+    if (!product) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
+                <div className="h-24 w-24 bg-slate-100 rounded-full flex items-center justify-center text-slate-300">
+                    <ShoppingBag size={48} />
+                </div>
+                <div className="text-center space-y-2">
+                    <h2 className="text-2xl font-black text-slate-800">Product Not Found</h2>
+                    <p className="text-slate-500 font-medium tracking-tight">The item you are looking for might have been moved or removed.</p>
+                </div>
+                <Link to="/products">
+                    <Button className="bg-[#0c831f] hover:bg-[#0b721b] text-white px-8 h-12 font-black rounded-xl">GO BACK SHOPPING</Button>
+                </Link>
+            </div>
+        );
+    }
+
+    const cartItem = cart.find(item => item.id === product._id || item.id === product.id);
+    const quantity = cartItem ? cartItem.quantity : 0;
+    const isWishlisted = isInWishlist(product._id || product.id);
+
+    const productDetails = [
+        { label: 'Unit', value: product.unit || 'Pieces' },
+        { label: 'Weight', value: product.weight || 'N/A' },
+        { label: 'Brand', value: product.brand || 'Fresh' }
+    ];
+
     return (
         <div className="relative z-10 py-8 w-full max-w-[1920px] mx-auto px-4 md:px-[50px] animate-in fade-in duration-700 mt-48 md:mt-24">
             {/* Back Button */}
@@ -142,7 +177,7 @@ const ProductDetailPage = () => {
                 <div className="lg:w-[45%] xl:w-[40%] space-y-4">
                     <div className="relative aspect-square rounded-[2rem] overflow-hidden bg-white border border-slate-100 shadow-sm transition-all hover:shadow-xl group">
                         <img
-                            src={activeImage}
+                            src={activeImage || product.mainImage || 'https://images.unsplash.com/photo-1542838132-92c53300491e'}
                             alt={product.name}
                             className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                         />
@@ -158,7 +193,7 @@ const ProductDetailPage = () => {
                     </div>
 
                     <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                        {product.images.map((img, idx) => (
+                        {(product.images || product.galleryImages || []).map((img, idx) => (
                             <button
                                 key={idx}
                                 onClick={() => setActiveImage(img)}
@@ -178,7 +213,7 @@ const ProductDetailPage = () => {
                     <div>
                         <div className="flex items-center gap-3 mb-4">
                             <span className="bg-[#0c831f]/10 text-[#0c831f] px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border border-[#0c831f]/20">
-                                {product.category}
+                                {product.categoryId?.name || product.category || 'Product'}
                             </span>
                             <div className="flex items-center gap-1 text-orange-500 font-bold bg-orange-50 px-3 py-0.5 rounded-full text-xs">
                                 <Star size={12} fill="currentColor" /> {reviews.length > 0 ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1) : '4.8'} ({reviews.length > 0 ? reviews.length : '120+'})
@@ -190,11 +225,15 @@ const ProductDetailPage = () => {
                         </h1>
 
                         <div className="flex items-baseline gap-4 mb-5">
-                            <span className="text-4xl font-black text-[#0c831f]">₹{product.price}</span>
-                            <span className="text-lg text-slate-400 line-through font-bold">₹{product.originalPrice}</span>
-                            <span className="text-xs bg-red-50 text-red-500 px-2 py-1 rounded-lg font-black uppercase">
-                                {Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)}% OFF
-                            </span>
+                            <span className="text-4xl font-black text-[#0c831f]">₹{product.salePrice || product.price}</span>
+                            {product.salePrice > 0 && product.salePrice < product.price && (
+                                <>
+                                    <span className="text-lg text-slate-400 line-through font-bold">₹{product.price}</span>
+                                    <span className="text-xs bg-red-50 text-red-500 px-2 py-1 rounded-lg font-black uppercase">
+                                        {Math.round(((product.price - product.salePrice) / product.price) * 100)}% OFF
+                                    </span>
+                                </>
+                            )}
                         </div>
 
                         <p className="text-slate-600 text-lg leading-relaxed mb-6 font-medium max-w-2xl">
@@ -207,14 +246,14 @@ const ProductDetailPage = () => {
                         {quantity > 0 ? (
                             <div className="flex items-center bg-[#0c831f] text-white rounded-2xl h-16 w-full sm:w-auto px-2 shadow-xl shadow-green-100">
                                 <button
-                                    onClick={() => updateQuantity(product.id, -1)}
+                                    onClick={() => updateQuantity(product._id || product.id, -1)}
                                     className="w-12 h-12 flex items-center justify-center hover:bg-white/20 rounded-xl transition-all"
                                 >
                                     <Minus size={24} strokeWidth={3} />
                                 </button>
                                 <span className="w-16 text-center font-black text-xl">{quantity}</span>
                                 <button
-                                    onClick={() => updateQuantity(product.id, 1)}
+                                    onClick={() => updateQuantity(product._id || product.id, 1)}
                                     className="w-12 h-12 flex items-center justify-center hover:bg-white/20 rounded-xl transition-all"
                                 >
                                     <Plus size={24} strokeWidth={3} />
@@ -243,7 +282,7 @@ const ProductDetailPage = () => {
                     </div>
 
                     <div className="grid grid-cols-3 gap-4">
-                        {product.details.map((detail, idx) => (
+                        {productDetails.map((detail, idx) => (
                             <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-100 text-center shadow-sm">
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{detail.label}</p>
                                 <p className="text-sm font-black text-slate-800">{detail.value}</p>

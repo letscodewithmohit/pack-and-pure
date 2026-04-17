@@ -50,6 +50,11 @@ const productSchema = new mongoose.Schema(
             type: String,
             trim: true,
         },
+        unit: {
+            type: String,
+            enum: ["Pieces", "kg", "g", "L", "ml", "Pack", "Box", "Bundle"],
+            default: "Pieces",
+        },
         tags: [{
             type: String,
             trim: true,

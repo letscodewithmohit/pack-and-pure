@@ -93,6 +93,13 @@ export const reserveHubInventory = async (allocations, hubId = HUB_ID) => {
       },
       { new: true },
     );
+    
+    if (updated) {
+      // Keep Product root stock in sync for Admin view consistency
+      await Product.findByIdAndUpdate(row.productId, {
+        $inc: { stock: -row.reserveQty }
+      });
+    }
     if (!updated) {
       // Roll back partial reservations when any line fails (race-safe best effort).
       for (const applied of reservedRows) {
@@ -132,9 +139,9 @@ export const createAutoPurchaseRequests = async ({ order, shortages, hubId = HUB
     String(candidate?.categoryId || "") === String(base?.categoryId || "") &&
     String(candidate?.subcategoryId || "") === String(base?.subcategoryId || "");
 
-  const selectCheapestSeller = async (baseProduct, shortageQty) => {
-    if (!baseProduct) return null;
-    const qty = Math.max(1, Number(shortageQty || 0));
+  const selectCheapestSellers = async (baseProduct, shortageQty) => {
+    if (!baseProduct) return [];
+    const totalNeeded = Math.max(1, Number(shortageQty || 0));
     const matchOr = [];
     if (String(baseProduct.sku || "").trim()) {
       matchOr.push({ sku: String(baseProduct.sku).trim() });
@@ -149,19 +156,19 @@ export const createAutoPurchaseRequests = async ({ order, shortages, hubId = HUB
         subcategoryId: baseProduct.subcategoryId,
       });
     }
-    if (!matchOr.length) return null;
+    if (!matchOr.length) return [];
 
     const candidates = await Product.find({
       ownerType: "seller",
       status: "active",
       sellerId: { $ne: null },
-      stock: { $gte: qty },
+      stock: { $gt: 0 },
       $or: matchOr,
     })
       .select("_id sellerId stock sku name headerId categoryId subcategoryId price salePrice")
       .lean();
 
-    if (!candidates.length) return null;
+    if (!candidates.length) return [];
 
     const scored = candidates.map((row) => {
       const unitCost = normalizeMoney(effectiveCatalogPrice(row));
@@ -169,7 +176,8 @@ export const createAutoPurchaseRequests = async ({ order, shortages, hubId = HUB
         String(baseProduct.sku || "").trim() &&
         String(row.sku || "").trim() === String(baseProduct.sku || "").trim();
       const nameMatch =
-        normalizeText(row.name) && normalizeText(row.name) === normalizeText(baseProduct.name);
+        normalizeText(row.name) &&
+        normalizeText(row.name) === normalizeText(baseProduct.name);
       const categoryMatch = sameCategory(row, baseProduct);
       let qualityRank = 4;
       if (skuMatch) qualityRank = 1;
@@ -188,20 +196,29 @@ export const createAutoPurchaseRequests = async ({ order, shortages, hubId = HUB
       return Number(b.stock || 0) - Number(a.stock || 0);
     });
 
-    const best = scored[0];
-    if (!best) return null;
-    return {
-      vendorId: best.sellerId ? String(best.sellerId) : null,
-      selectedSellerProductId: best._id ? String(best._id) : null,
-      vendorUnitCost: best.unitCost,
-      vendorQuotedPrice: normalizeMoney(effectiveCatalogPrice(best)),
-      pricingStrategy:
-        best.qualityRank === 1
-          ? "cheapest_same_sku"
-          : best.qualityRank === 2
-            ? "cheapest_name_category_match"
-            : "cheapest_category_match",
-    };
+    const results = [];
+    let remaining = totalNeeded;
+    for (const vendor of scored) {
+      if (remaining <= 0) break;
+      const canTake = Math.min(remaining, Number(vendor.stock || 0));
+      if (canTake <= 0) continue;
+
+      results.push({
+        vendorId: vendor.sellerId ? String(vendor.sellerId) : null,
+        selectedSellerProductId: vendor._id ? String(vendor._id) : null,
+        qtyToProcure: canTake,
+        vendorUnitCost: vendor.unitCost,
+        vendorQuotedPrice: normalizeMoney(effectiveCatalogPrice(vendor)),
+        pricingStrategy:
+          vendor.qualityRank === 1
+            ? "cheapest_same_sku"
+            : vendor.qualityRank === 2
+              ? "cheapest_name_category_match"
+              : "cheapest_category_match",
+      });
+      remaining -= canTake;
+    }
+    return results;
   };
 
   const shortageProductIds = shortages
@@ -221,34 +238,49 @@ export const createAutoPurchaseRequests = async ({ order, shortages, hubId = HUB
   for (const item of shortages) {
     const productId = String(item.productId || "");
     const baseProduct = item.baseProduct || fallbackProductMap.get(productId) || null;
-    let selected = null;
+
     if (item.vendorId && Number(baseProduct?.stock || 0) >= Number(item.shortageQty || 0)) {
       const selfCost = normalizeMoney(effectiveCatalogPrice(baseProduct));
-      selected = {
+      enrichedShortages.push({
+        ...item,
         vendorId: String(item.vendorId),
-        selectedSellerProductId:
-          baseProduct?.ownerType === "seller" ? String(baseProduct?._id || "") : null,
+        selectedSellerProductId: baseProduct?.ownerType === "seller" ? String(baseProduct?._id || "") : null,
         vendorUnitCost: selfCost,
         vendorQuotedPrice: selfCost,
         pricingStrategy: "direct_vendor_mapping",
-      };
+        marginType: DEFAULT_PROCUREMENT_MARGIN_TYPE,
+        marginValue: DEFAULT_PROCUREMENT_MARGIN_VALUE,
+      });
     } else {
       // eslint-disable-next-line no-await-in-loop
-      selected = await selectCheapestSeller(baseProduct, item.shortageQty);
+      const selections = await selectCheapestSellers(baseProduct, item.shortageQty);
+      if (selections.length === 0) {
+        enrichedShortages.push({
+          ...item,
+          vendorId: null,
+          selectedSellerProductId: null,
+          vendorUnitCost: normalizeMoney(effectiveCatalogPrice(baseProduct)),
+          vendorQuotedPrice: normalizeMoney(effectiveCatalogPrice(baseProduct)),
+          pricingStrategy: "fallback_catalog_price",
+          marginType: DEFAULT_PROCUREMENT_MARGIN_TYPE,
+          marginValue: DEFAULT_PROCUREMENT_MARGIN_VALUE,
+        });
+      } else {
+        for (const sel of selections) {
+          enrichedShortages.push({
+            ...item,
+            shortageQty: sel.qtyToProcure,
+            vendorId: sel.vendorId,
+            selectedSellerProductId: sel.selectedSellerProductId,
+            vendorUnitCost: sel.vendorUnitCost,
+            vendorQuotedPrice: sel.vendorQuotedPrice,
+            pricingStrategy: sel.pricingStrategy,
+            marginType: DEFAULT_PROCUREMENT_MARGIN_TYPE,
+            marginValue: DEFAULT_PROCUREMENT_MARGIN_VALUE,
+          });
+        }
+      }
     }
-
-    enrichedShortages.push({
-      ...item,
-      vendorId: selected?.vendorId || null,
-      selectedSellerProductId: selected?.selectedSellerProductId || null,
-      vendorUnitCost: normalizeMoney(selected?.vendorUnitCost || effectiveCatalogPrice(baseProduct)),
-      vendorQuotedPrice: normalizeMoney(
-        selected?.vendorQuotedPrice || effectiveCatalogPrice(baseProduct),
-      ),
-      pricingStrategy: selected?.pricingStrategy || "fallback_catalog_price",
-      marginType: DEFAULT_PROCUREMENT_MARGIN_TYPE,
-      marginValue: DEFAULT_PROCUREMENT_MARGIN_VALUE,
-    });
   }
 
   const grouped = new Map();
