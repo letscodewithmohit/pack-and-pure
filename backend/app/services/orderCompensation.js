@@ -20,6 +20,26 @@ export async function compensateOrderCancellation(order, orderIdString) {
       note: `Order #${orderIdString} Cancelled`,
       order: order._id,
     });
+    // --- HUB STOCK REVERSAL ---
+    if (order.hubFlowEnabled) {
+      try {
+        const HubInventory = (await import("../models/hubInventory.js")).default;
+        const hubId = process.env.DEFAULT_HUB_ID || "MAIN_HUB";
+        
+        await HubInventory.findOneAndUpdate(
+          { hubId, productId: item.product },
+          { 
+            $inc: { 
+              availableQty: item.quantity,
+              reservedQty: -item.quantity
+            } 
+          }
+        );
+        console.log(`[InventorySync] Reversed ${item.quantity} units from reserved to available for Order #${orderIdString}`);
+      } catch (err) {
+        console.warn("[InventorySync] Hub reversal failed during compensation:", err.message);
+      }
+    }
   }
 
   await Transaction.findOneAndUpdate(

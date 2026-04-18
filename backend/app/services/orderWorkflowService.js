@@ -777,6 +777,24 @@ export async function customerCancelV2(customerId, orderId, reason) {
 
   await removeSellerTimeoutJob(orderId);
   await compensateOrderCancellation(updated, orderId);
+
+  // --- HUB-FIRST LOGIC: Cancel related Purchase Requests ---
+  try {
+    const PurchaseRequest = (await import("../models/purchaseRequest.js")).default;
+    await PurchaseRequest.updateMany(
+      { orderId: updated._id },
+      { 
+        $set: { 
+          status: "cancelled", 
+          notes: (updated.notes || "") + ` | Auto-cancelled due to order cancellation: ${reason || "No reason provided"}`
+        } 
+      }
+    );
+    console.log(`[OrderWorkflow] Cancelled all procurement requests for order: ${orderId}`);
+  } catch (prErr) {
+    console.warn("[OrderWorkflow] Failed to auto-cancel related PRs:", prErr.message);
+  }
+
   emitOrderStatusUpdate(orderId, { workflowStatus: WORKFLOW_STATUS.CANCELLED }, updated.customer);
   return updated;
 }
@@ -1156,11 +1174,23 @@ export async function verifyHandoffOtpAndDeliver(deliveryId, orderId, code) {
           const qtyToDeduct = Number(item.quantity || 0);
 
           if (qtyToDeduct > 0) {
-            await HubInventory.findOneAndUpdate(
+            const hubStock = await HubInventory.findOneAndUpdate(
               { hubId, productId },
-              { $inc: { hubStockQuantity: -qtyToDeduct } }
+              { $inc: { reservedQty: -qtyToDeduct } },
+              { new: true }
             );
-            console.log(`[InventorySync] Deducting ${qtyToDeduct} from Hub for product ${productId}`);
+            
+            if (hubStock) {
+              // Auto-update status based on remaining stock
+              let newStatus = "healthy";
+              if (hubStock.availableQty <= 0) newStatus = "out_of_stock";
+              else if (hubStock.availableQty <= (hubStock.reorderLevel || 10)) newStatus = "low_stock";
+              
+              if (hubStock.status !== newStatus) {
+                await HubInventory.findByIdAndUpdate(hubStock._id, { $set: { status: newStatus } });
+              }
+              console.log(`[InventorySync] Deducted ${qtyToDeduct}. New Qty: ${hubStock.availableQty}, Status: ${newStatus}`);
+            }
           }
         }
       } catch (err) {

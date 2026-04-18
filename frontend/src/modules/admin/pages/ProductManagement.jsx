@@ -635,9 +635,17 @@ const ProductManagement = () => {
 
                                     {/* Stock Column */}
                                     <td className="px-6 py-4 text-center">
-                                        <span className={cn("text-xs font-bold", p.stock === 0 ? "text-rose-500" : p.stock <= 10 ? "text-amber-500" : "text-emerald-500")}>
-                                            {p.stock}
-                                        </span>
+                                        <div className="flex flex-col items-center gap-1">
+                                            <span className={cn("text-xs font-bold px-2 py-0.5 rounded-md", p.stock === 0 ? "bg-rose-50 text-rose-600" : p.stock <= 10 ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600")}>
+                                                {p.stock}
+                                            </span>
+                                            {p.ownerType === 'admin' && (
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter bg-slate-50 px-1 border border-slate-100 rounded" title="Stock currently in physical Hub">H: {p.availableQtyHub || 0}</span>
+                                                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter bg-slate-50 px-1 border border-slate-100 rounded" title="Stock sitting with various Sellers">S: {p.availableQtySeller || 0}</span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </td>
 
                                     {/* Status Column */}
@@ -1160,7 +1168,10 @@ const ProductManagement = () => {
                                                                 <input
                                                                     type="number"
                                                                     value={variant.stock}
+                                                                    readOnly={editingItem?.ownerType === 'admin'}
+                                                                    title={editingItem?.ownerType === 'admin' ? "Stock for Master Products is managed via Hub Inventory" : ""}
                                                                     onChange={(e) => {
+                                                                        if (editingItem?.ownerType === 'admin') return;
                                                                         const val = e.target.value;
                                                                         const newVariants = [...formData.variants];
                                                                         newVariants[idx].stock = val;
@@ -1169,7 +1180,10 @@ const ProductManagement = () => {
                                                                         setFormData(update);
                                                                     }}
                                                                     placeholder="0"
-                                                                    className="w-full px-3 py-2 bg-white ring-1 ring-slate-200 border-none rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-primary/10"
+                                                                    className={cn(
+                                                                        "w-full px-3 py-2 ring-1 ring-slate-200 border-none rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-primary/10",
+                                                                        editingItem?.ownerType === 'admin' ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "bg-white"
+                                                                    )}
                                                                 />
                                                             </div>
                                                             <div className="col-span-2 space-y-1">

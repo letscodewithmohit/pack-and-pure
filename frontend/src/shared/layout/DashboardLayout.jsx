@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import SellerOrdersContext from '@/modules/seller/context/SellerOrdersContext';
 import SellerEarningsContext, { defaultEarnings } from '@/modules/seller/context/SellerEarningsContext';
-import { getOrderSocket, onSellerOrderNew, onAdminOrderNew } from '@/core/services/orderSocket';
+import { getOrderSocket, onSellerOrderNew, onAdminOrderNew, onPurchaseRequestNew } from '@/core/services/orderSocket';
 
 const POLL_INTERVAL_MS = 15000;
 
@@ -37,6 +37,7 @@ const DashboardLayout = ({ children, navItems, title }) => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const { user, logout, role } = useAuth();
     const location = useLocation();
+    const navigate = useNavigate();
 
     // Shared data for seller – single source, avoids duplicate API calls
     const [sellerOrders, setSellerOrders] = useState([]);
@@ -78,6 +79,10 @@ const DashboardLayout = ({ children, navItems, title }) => {
                 setSellerOrders(allOrders);
 
                 const pendingOrders = allOrders.filter((o) => {
+                    // EXCLUDE Hub-managed orders from the basic "New Order" popup.
+                    // Sellers should only see popups for direct orders or NEW Purchase Requests (handled via socket).
+                    if (o.hubFlowEnabled) return false;
+
                     if (o.requiresAction !== undefined) return o.requiresAction;
                     const ws = (o.workflowStatus || "").toUpperCase();
                     if (ws === "SELLER_PENDING") return true;
@@ -119,10 +124,33 @@ const DashboardLayout = ({ children, navItems, title }) => {
         if (role !== 'seller') return undefined;
         const getToken = () => localStorage.getItem('auth_seller');
         getOrderSocket(getToken);
-        return onSellerOrderNew(getToken, () => {
+
+        // Standard order notification
+        const unsubOrder = onSellerOrderNew(getToken, () => {
             if (fetchOrdersRef.current) fetchOrdersRef.current();
         });
-    }, [role]);
+
+        // PR specific notification
+        const unsubPr = onPurchaseRequestNew(getToken, (payload) => {
+            const id = payload?.orderId || 'New';
+            toast.info(`New Purchase Request for order #${id}!`, {
+                description: `Items: ${payload.itemsCount || 1}`,
+                action: {
+                    label: "VIEW",
+                    onClick: () => navigate("/seller/procurement")
+                }
+            });
+            const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+            audio.play().catch(() => {});
+            
+            if (fetchOrdersRef.current) fetchOrdersRef.current();
+        });
+
+        return () => {
+            unsubOrder();
+            unsubPr();
+        };
+    }, [role, navigate]);
 
     useEffect(() => {
         if (role !== 'admin') return undefined;

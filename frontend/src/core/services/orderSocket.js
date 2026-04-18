@@ -148,3 +148,9 @@ export function onDeliveryOtpValidated(getToken, handler) {
     s.off("delivery:otp:validated", wrappedHandler);
   };
 }
+export function onPurchaseRequestNew(getToken, handler) {
+  const s = getOrderSocket(getToken);
+  if (!s || typeof handler !== "function") return () => {};
+  s.on("purchase_request:new", handler);
+  return () => s.off("purchase_request:new", handler);
+}

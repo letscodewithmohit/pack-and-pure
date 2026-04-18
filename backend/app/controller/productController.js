@@ -433,13 +433,17 @@ export const createProduct = async (req, res) => {
     const product = new Product(productData);
     await product.save();
 
-    // Ensure Admin products have an entry in Hub Inventory and sync stock
+    // Ensure Admin products have an entry in Hub Inventory
     if (product.ownerType === "admin") {
       try {
+        // We initialize with 0! Stock should come from Hub Inventory management or Seller procurement.
         const HubInventory = mongoose.model("HubInventory");
         await HubInventory.findOneAndUpdate(
           { hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB", productId: product._id },
-          { availableQty: Number(product.stock || 0), reorderLevel: Number(product.lowStockAlert || 10) },
+          { 
+            $setOnInsert: { availableQty: 0 }, // Initialize to 0 on first creation
+            $set: { reorderLevel: Number(productData.lowStockAlert || 10) } 
+          },
           { upsert: true, new: true }
         );
       } catch (err) {
@@ -629,36 +633,87 @@ export const updateProduct = async (req, res) => {
       { new: true, runValidators: true },
     );
 
-    // --- AUTO APPROVAL & PRICE SYNC Logic for Master Product ---
-    // If admin is activating a seller product or changing its customer-facing price,
-    // we sync it to the master product.
+    // --- AUTO APPROVAL & MASTER PROMOTION Logic ---
     const currentStatus = (productData.status || (req.body && req.body.status) || "").toLowerCase();
     const customerPrice = Number(req.body.customerPrice);
 
     if (role === "admin") {
       let mid = updatedProduct?.masterProductId;
       
+      // 1. Try to find an existing master if not linked
       if (!mid) {
         const matchingMaster = await Product.findOne({
           name: { $regex: new RegExp(`^${updatedProduct.name}$`, "i") },
           ownerType: "admin"
         });
-        if (matchingMaster) mid = matchingMaster._id;
+        if (matchingMaster) {
+          mid = matchingMaster._id;
+          // Link it now so future edits are consistent
+          await Product.findByIdAndUpdate(updatedProduct._id, { masterProductId: mid });
+        }
       }
       
+      // 2. PROMOTION: If still no master and admin is activating, create a Master Record automatically
+      if (!mid && currentStatus === "active") {
+        try {
+          console.log(`[updateProduct] No master found for ${updatedProduct.name}. Promoting to Master Catalog...`);
+          
+          const masterSlug = await ensureUniqueSlug(updatedProduct.slug);
+          const masterSku = await ensureUniqueSku(`M-${updatedProduct.sku || Date.now()}`);
+          
+          const newMaster = new Product({
+            name: updatedProduct.name,
+            slug: masterSlug,
+            sku: masterSku,
+            ownerType: "admin",
+            status: "active",
+            headerId: updatedProduct.headerId,
+            categoryId: updatedProduct.categoryId,
+            subcategoryId: updatedProduct.subcategoryId,
+            unit: updatedProduct.unit,
+            mainImage: updatedProduct.mainImage,
+            galleryImages: updatedProduct.galleryImages,
+            description: updatedProduct.description,
+            price: customerPrice || updatedProduct.price, // Admin price gets priority
+            salePrice: customerPrice || updatedProduct.salePrice,
+            stock: 0, // Master stock starts at 0, syncs via Hub Inventory
+            variants: updatedProduct.variants
+          });
+          
+          const savedMaster = await newMaster.save();
+          mid = savedMaster._id;
+          
+          // Link the seller product to this new master
+          await Product.findByIdAndUpdate(updatedProduct._id, { masterProductId: mid });
+          
+          // Initialize Hub Inventory for this new master
+          const HubInventory = mongoose.model("HubInventory");
+          await HubInventory.findOneAndUpdate(
+            { hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB", productId: mid },
+            { $setOnInsert: { availableQty: 0, reservedQty: 0 } },
+            { upsert: true }
+          );
+          
+          console.log(`[updateProduct] SUCCESS: Created new Master Product ${mid} from approved Seller item.`);
+        } catch (promErr) {
+          console.error("[updateProduct] Master promotion failed:", promErr.message);
+        }
+      }
+      
+      // 3. SYNC: If we have a master ID, ensure status and optional customerPrice are synced
       if (mid) {
         const masterUpdate = {};
         if (currentStatus === "active") masterUpdate.status = "active";
-        // If admin provided a specific customerPrice, update the Master Product's price
+        
         if (!isNaN(customerPrice) && customerPrice > 0) {
           masterUpdate.price = customerPrice;
-          masterUpdate.salePrice = customerPrice; // Set both for consistency
+          masterUpdate.salePrice = customerPrice;
         }
 
         if (Object.keys(masterUpdate).length > 0) {
           try {
             await Product.findByIdAndUpdate(mid, { $set: masterUpdate });
-            console.log(`[updateProduct] SUCCESS: Synced Master Product ${mid} (Status: ${masterUpdate.status}, Price: ${customerPrice})`);
+            console.log(`[updateProduct] SUCCESS: Synced Master Product ${mid} (Status: ${masterUpdate.status}, Price: ${customerPrice || 'N/A'})`);
           } catch (err) {
             console.warn("[updateProduct] ERROR: Failed to sync master product:", err.message);
           }
@@ -666,13 +721,16 @@ export const updateProduct = async (req, res) => {
       }
     }
 
-    // Ensure Admin products have an entry in Hub Inventory and sync stock
+    // Ensure Admin products have an entry in Hub Inventory
     if (updatedProduct.ownerType === "admin") {
       try {
         const HubInventory = mongoose.model("HubInventory");
         await HubInventory.findOneAndUpdate(
           { hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB", productId: updatedProduct._id },
-          { availableQty: Number(updatedProduct.stock || 0), reorderLevel: Number(updatedProduct.lowStockAlert || 10) },
+          { 
+            $setOnInsert: { availableQty: 0 }, 
+            $set: { reorderLevel: Number(updatedProduct.lowStockAlert || 10) } 
+          },
           { upsert: true }
         );
       } catch (err) {

@@ -481,7 +481,7 @@ export const receiveAtHub = async (req, res) => {
         );
         const sellPrice = computeSellPrice(weightedAvgCost || incomingCost, marginType, marginValue);
 
-        hubRow.availableQty = Math.max(0, Number(hubRow.availableQty || 0) + acceptedQty);
+        hubRow.reservedQty = Math.max(0, Number(hubRow.reservedQty || 0) + acceptedQty);
         hubRow.lastPurchaseCost = incomingCost;
         hubRow.avgPurchaseCost = weightedAvgCost;
         hubRow.marginType = marginType;
@@ -500,7 +500,8 @@ export const receiveAtHub = async (req, res) => {
         await HubInventory.create({
           hubId: pr.hubId || DEFAULT_HUB_ID,
           productId,
-          availableQty: acceptedQty,
+          availableQty: 0,
+          reservedQty: acceptedQty,
           reorderLevel: 10,
           lastPurchaseCost: incomingCost,
           avgPurchaseCost: incomingCost,
@@ -631,15 +632,30 @@ export const getSellerPurchaseRequests = async (req, res) => {
       query.status = String(status);
     }
 
+    // We fetch and then filter to ensure we only show requests with VALID existing orders
     const rows = await PurchaseRequest.find(query)
-      .populate("orderId", "orderId")
+      .populate({
+        path: "orderId",
+        select: "orderId status workflowStatus",
+      })
       .populate("items.productId", "name")
       .populate("pickupPartnerId", "name phone")
       .sort({ createdAt: -1 })
       .lean();
 
+    // Filter out requests where order is missing or cancelled at the order level
+    const filteredRows = rows.filter(row => {
+      // If it's a manual admin PR (no orderId), show it
+      if (!row.orderId && !row.requestId.includes("ORD")) return true;
+      
+      // If order is missing from DB or order status is cancelled, hide it from seller
+      if (!row.orderId || row.orderId.status === "cancelled") return false;
+      
+      return true;
+    });
+
     return handleResponse(res, 200, "Seller purchase requests fetched", {
-      items: rows.map(mapSellerRow),
+      items: filteredRows.map(mapSellerRow),
     });
   } catch (error) {
     return handleResponse(res, 500, error.message);

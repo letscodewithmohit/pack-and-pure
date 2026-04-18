@@ -29,7 +29,7 @@ import {
   reserveHubInventory,
   createAutoPurchaseRequests,
 } from "../services/hubOrderOrchestrator.js";
-import { emitToAdminOrdersRoom } from "../services/orderSocketEmitter.js";
+import { emitToAdminOrdersRoom, emitToSeller } from "../services/orderSocketEmitter.js";
 import { distanceMeters } from "../utils/geoUtils.js";
 import {
   orderMatchQueryFromRouteParam,
@@ -250,6 +250,18 @@ export const placeOrder = async (req, res) => {
       await Promise.all(
         purchaseRequests.map((pr) => {
           if (!pr.vendorId) return null;
+          
+          // Real-time socket notification for Procurement Requests
+          emitToSeller(pr.vendorId.toString(), {
+            event: "purchase_request:new",
+            payload: {
+              orderId,
+              purchaseRequestId: pr._id?.toString(),
+              itemsCount: pr.items?.length || 0,
+              totalAmount: pricing?.total || 0
+            }
+          });
+
           return createNotification({
             recipient: pr.vendorId,
             recipientModel: "Seller",
