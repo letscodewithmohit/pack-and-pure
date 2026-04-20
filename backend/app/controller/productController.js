@@ -441,7 +441,7 @@ export const createProduct = async (req, res) => {
         await HubInventory.findOneAndUpdate(
           { hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB", productId: product._id },
           { 
-            $setOnInsert: { availableQty: 0 }, // Initialize to 0 on first creation
+            $setOnInsert: { availableQty: Number(productData.stock || 0), reservedQty: 0 },
             $set: { reorderLevel: Number(productData.lowStockAlert || 10) } 
           },
           { upsert: true, new: true }
@@ -818,7 +818,8 @@ export const getProductById = async (req, res) => {
       .populate("headerId", "name")
       .populate("categoryId", "name")
       .populate("subcategoryId", "name")
-      .populate("sellerId", "shopName");
+      .populate("sellerId", "shopName")
+      .populate("masterProductId", "description brand weight unit variants images mainImage");
 
     if (!product) {
       return handleResponse(res, 404, "Product not found");

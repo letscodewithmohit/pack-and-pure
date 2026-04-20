@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HiOutlineLink } from 'react-icons/hi2';
 import axiosInstance from '@core/api/axios';
+import CategoryQuickModal from '../components/CategoryQuickModal';
 
 const ProductManagement = () => {
     const [products, setProducts] = useState([]);
@@ -82,7 +83,36 @@ const ProductManagement = () => {
     const [imageFiles, setImageFiles] = useState([]);
     const [previews, setPreviews] = useState([]);
 
-    const [isSearchingMaster, setIsSearchingMaster] = useState(false);
+    const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+    const [categoryModalConfig, setCategoryModalConfig] = useState({ type: 'header', parentId: '', editItem: null });
+
+    const handleCategorySuccess = async (newItem) => {
+        await fetchCategories(); // Refresh tree
+        // Auto-select is handled based on type in the onSuccess callback if we want, 
+        // but for now, let's just refresh. The user can select it from the refreshed list.
+        toast.success('Catalog updated and synchronized');
+    };
+
+    const openQuickCategoryAdd = (type, parentId = null) => {
+        setCategoryModalConfig({ type, parentId, editItem: null });
+        setIsCategoryModalOpen(true);
+    };
+
+    const openQuickCategoryEdit = (type) => {
+        const id = type === 'header' ? formData.header : (type === 'category' ? formData.categoryId : formData.subcategoryId);
+        if (!id) return toast.error('Please select an item to edit');
+
+        // Find current item details
+        let currentItem = null;
+        if (type === 'header') currentItem = categories.find(c => c._id === id);
+        else if (type === 'category') currentItem = categories.find(h => h._id === formData.header)?.children?.find(c => c._id === id);
+        else if (type === 'subcategory') currentItem = categories.find(h => h._id === formData.header)?.children?.find(c => c._id === formData.categoryId)?.children?.find(sc => sc._id === id);
+
+        if (currentItem) {
+            setCategoryModalConfig({ type, parentId: currentItem.parentId, editItem: currentItem });
+            setIsCategoryModalOpen(true);
+        }
+    };
     const [masterSuggestions, setMasterSuggestions] = useState([]);
     const [showMasterSuggestions, setShowMasterSuggestions] = useState(false);
 
@@ -737,8 +767,7 @@ const ProductManagement = () => {
                                         { id: 'general', label: 'General Info', icon: HiOutlineTag },
                                         { id: 'variants', label: 'Item Variants', icon: HiOutlineSwatch },
                                         { id: 'category', label: 'Groups', icon: HiOutlineFolderOpen },
-                                        { id: 'media', label: 'Photos', icon: HiOutlinePhoto },
-                                        { id: 'attributes', label: 'SEO & Details', icon: HiOutlineScale }
+                                        { id: 'media', label: 'Photos', icon: HiOutlinePhoto }
                                     ].map((tab) => (
                                         <button
                                             key={tab.id}
@@ -948,23 +977,64 @@ const ProductManagement = () => {
                                         <div className="ds-section-spacing animate-in fade-in slide-in-from-right-2 duration-300">
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                                 <div className="space-y-1.5 flex flex-col">
-                                                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Main Group (Header) <span className="text-rose-500">*</span></label>
+                                                    <div className="flex items-center justify-between ml-1">
+                                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Main Group (Header) <span className="text-rose-500">*</span></label>
+                                                        <div className="flex gap-2">
+                                                            {formData.header && (
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => openQuickCategoryEdit('header')}
+                                                                    className="text-[9px] font-black text-slate-400 uppercase tracking-tight hover:text-blue-500"
+                                                                >
+                                                                    Edit
+                                                                </button>
+                                                            )}
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => openQuickCategoryAdd('header')}
+                                                                className="text-[9px] font-black text-primary uppercase tracking-tight hover:underline font-italic"
+                                                            >
+                                                                + Add New
+                                                            </button>
+                                                        </div>
+                                                    </div>
                                                     <select
                                                         value={formData.header}
                                                         onChange={(e) => setFormData({ ...formData, header: e.target.value, categoryId: '', subcategoryId: '' })}
-                                                        className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold outline-none cursor-pointer"
+                                                        className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold outline-none cursor-pointer hover:bg-slate-200 transition-colors"
                                                     >
                                                         <option value="">Select Main Group</option>
                                                         {categories.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
                                                     </select>
                                                 </div>
                                                 <div className="space-y-1.5 flex flex-col">
-                                                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Specific Category <span className="text-rose-500">*</span></label>
+                                                    <div className="flex items-center justify-between ml-1">
+                                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Specific Category <span className="text-rose-500">*</span></label>
+                                                        <div className="flex gap-2">
+                                                            {formData.categoryId && (
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => openQuickCategoryEdit('category')}
+                                                                    className="text-[9px] font-black text-slate-400 uppercase tracking-tight hover:text-blue-500"
+                                                                >
+                                                                    Edit
+                                                                </button>
+                                                            )}
+                                                            <button 
+                                                                type="button"
+                                                                disabled={!formData.header}
+                                                                onClick={() => openQuickCategoryAdd('category', formData.header)}
+                                                                className="text-[9px] font-black text-primary uppercase tracking-tight hover:underline disabled:opacity-30"
+                                                            >
+                                                                + Add New
+                                                            </button>
+                                                        </div>
+                                                    </div>
                                                     <select
                                                         value={formData.categoryId}
                                                         onChange={(e) => setFormData({ ...formData, categoryId: e.target.value, subcategoryId: '' })}
                                                         disabled={!formData.header}
-                                                        className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold outline-none cursor-pointer disabled:opacity-50"
+                                                        className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold outline-none cursor-pointer disabled:opacity-50 hover:bg-slate-200 transition-colors"
                                                     >
                                                         <option value="">Select Category</option>
                                                         {categories.find(h => h._id === formData.header)?.children?.map(c => (
@@ -974,12 +1044,33 @@ const ProductManagement = () => {
                                                 </div>
                                             </div>
                                             <div className="space-y-1.5 flex flex-col">
-                                                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">Sub-Category <span className="text-rose-500">*</span></label>
+                                                <div className="flex items-center justify-between ml-1">
+                                                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Sub-Category <span className="text-rose-500">*</span></label>
+                                                    <div className="flex gap-2">
+                                                        {formData.subcategoryId && (
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => openQuickCategoryEdit('subcategory')}
+                                                                className="text-[9px] font-black text-slate-400 uppercase tracking-tight hover:text-blue-500"
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                        )}
+                                                        <button 
+                                                            type="button"
+                                                            disabled={!formData.categoryId}
+                                                            onClick={() => openQuickCategoryAdd('subcategory', formData.categoryId)}
+                                                            className="text-[9px] font-black text-primary uppercase tracking-tight hover:underline disabled:opacity-30"
+                                                        >
+                                                            + Add New
+                                                        </button>
+                                                    </div>
+                                                </div>
                                                 <select
                                                     value={formData.subcategoryId}
                                                     onChange={(e) => setFormData({ ...formData, subcategoryId: e.target.value })}
                                                     disabled={!formData.categoryId}
-                                                    className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold outline-none cursor-pointer disabled:opacity-50"
+                                                    className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold outline-none cursor-pointer disabled:opacity-50 hover:bg-slate-200 transition-colors"
                                                 >
                                                     <option value="">Select Sub-Category</option>
                                                     {categories.find(h => h._id === formData.header)?.children?.find(c => c._id === formData.categoryId)?.children?.map(sc => (
@@ -1041,82 +1132,24 @@ const ProductManagement = () => {
                                     {modalTab === 'variants' && (
                                         <div className="space-y-6 animate-in fade-in slide-in-from-right-2 duration-300">
                                             <div className="flex items-center justify-between">
-                                                <h4 className="text-sm font-bold">Product Variants</h4>
+                                                <div>
+                                                    <h4 className="text-sm font-bold">Product Variants</h4>
+                                                    <p className="text-[10px] text-slate-400 font-medium">Manage different sizes, colors, or packs here.</p>
+                                                </div>
                                                 <button
                                                     type="button"
                                                     onClick={() => setFormData({ ...formData, variants: [...formData.variants, { id: Date.now(), name: '', price: '', salePrice: '', stock: '', sku: '' }] })}
-                                                    className="bg-primary/10 text-primary px-3 py-1 rounded-lg text-[10px] font-bold"
+                                                    className="bg-primary/10 text-primary px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-primary/20 transition-all"
                                                 >
-                                                    + ADD
+                                                    + Add New Variant
                                                 </button>
-                                            </div>
-                                            <div className="space-y-3">
-                                                {formData.variants.map((v, i) => (
-                                                    <div key={v.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                                                        <input
-                                                            value={v.name}
-                                                            onChange={e => {
-                                                                const news = [...formData.variants];
-                                                                news[i].name = e.target.value;
-                                                                setFormData({ ...formData, variants: news });
-                                                            }}
-                                                            placeholder="Name"
-                                                            className="bg-white px-3 py-2 rounded-xl text-xs ring-1 ring-slate-100 outline-none"
-                                                        />
-                                                        <input
-                                                            type="number"
-                                                            value={v.price}
-                                                            onChange={e => {
-                                                                const val = e.target.value;
-                                                                const news = [...formData.variants];
-                                                                news[i].price = val;
-                                                                const update = { ...formData, variants: news };
-                                                                if (i === 0) update.price = val;
-                                                                setFormData(update);
-                                                            }}
-                                                            placeholder="Price"
-                                                            className="bg-white px-3 py-2 rounded-xl text-xs ring-1 ring-slate-100 outline-none"
-                                                        />
-                                                        <input
-                                                            type="number"
-                                                            value={v.stock}
-                                                            onChange={e => {
-                                                                const val = e.target.value;
-                                                                const news = [...formData.variants];
-                                                                news[i].stock = val;
-                                                                const update = { ...formData, variants: news };
-                                                                if (i === 0) update.stock = val;
-                                                                setFormData(update);
-                                                            }}
-                                                            placeholder="Stock"
-                                                            className="bg-white px-3 py-2 rounded-xl text-xs ring-1 ring-slate-100 outline-none"
-                                                        />
-                                                        <div className="flex justify-end">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setFormData({ ...formData, variants: formData.variants.filter((_, idx) => idx !== i) })}
-                                                                className="text-rose-500 p-2 hover:bg-rose-50 rounded-lg"
-                                                            >
-                                                                <HiOutlineTrash className="h-4 w-4" />
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {modalTab === 'attributes' && (
-                                        <div className="ds-section-spacing animate-in fade-in slide-in-from-right-2 duration-300">
-                                            <div className="p-6 bg-slate-50 rounded-xl border border-slate-100 italic text-slate-500 text-xs text-center font-medium">
-                                                Additional SEO data and technical specifications coming in future updates.
                                             </div>
 
                                             {formData.variants?.length > 0 ? (
                                                 <div className="space-y-3">
                                                     {formData.variants.map((variant, idx) => (
-                                                        <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 grid grid-cols-12 gap-4 items-end group relative">
-                                                            <div className="col-span-4 space-y-1">
+                                                        <div key={variant.id || idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 grid grid-cols-12 gap-3 items-end group relative transition-all hover:bg-slate-100/50">
+                                                            <div className="col-span-full lg:col-span-3 space-y-1">
                                                                 <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Variant Name</label>
                                                                 <input
                                                                     value={variant.name}
@@ -1126,11 +1159,11 @@ const ProductManagement = () => {
                                                                         setFormData({ ...formData, variants: newVariants });
                                                                     }}
                                                                     placeholder="e.g. 1kg Packet"
-                                                                    className="w-full px-3 py-2 bg-white ring-1 ring-slate-200 border-none rounded-lg text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/10"
+                                                                    className="w-full px-3 py-2.5 bg-white ring-1 ring-slate-200 border-none rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/10"
                                                                 />
                                                             </div>
-                                                            <div className="col-span-2 space-y-1">
-                                                                <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Price</label>
+                                                            <div className="col-span-3 lg:col-span-2 space-y-1">
+                                                                <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Price (MRP)</label>
                                                                 <input
                                                                     type="number"
                                                                     value={variant.price}
@@ -1143,11 +1176,11 @@ const ProductManagement = () => {
                                                                         setFormData(update);
                                                                     }}
                                                                     placeholder="0.00"
-                                                                    className="w-full px-3 py-2 bg-white ring-1 ring-slate-200 border-none rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-primary/10"
+                                                                    className="w-full px-3 py-2.5 bg-white ring-1 ring-slate-200 border-none rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-primary/10"
                                                                 />
                                                             </div>
-                                                            <div className="col-span-2 space-y-1">
-                                                                <label className="text-[8px] font-bold text-emerald-400 uppercase tracking-widest ml-1">Sale Price</label>
+                                                            <div className="col-span-3 lg:col-span-2 space-y-1">
+                                                                <label className="text-[8px] font-bold text-emerald-500 uppercase tracking-widest ml-1">Sale Price</label>
                                                                 <input
                                                                     type="number"
                                                                     value={variant.salePrice}
@@ -1160,10 +1193,10 @@ const ProductManagement = () => {
                                                                         setFormData(update);
                                                                     }}
                                                                     placeholder="0.00"
-                                                                    className="w-full px-3 py-2 bg-emerald-50/50 ring-1 ring-emerald-100 border-none rounded-lg text-xs font-bold text-emerald-700 outline-none focus:ring-2 focus:ring-emerald-200"
+                                                                    className="w-full px-3 py-2.5 bg-emerald-50/50 ring-1 ring-emerald-100 border-none rounded-xl text-xs font-bold text-emerald-700 outline-none focus:ring-2 focus:ring-emerald-200"
                                                                 />
                                                             </div>
-                                                            <div className="col-span-1 space-y-1">
+                                                            <div className="col-span-2 lg:col-span-2 space-y-1">
                                                                 <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Stock</label>
                                                                 <input
                                                                     type="number"
@@ -1181,13 +1214,13 @@ const ProductManagement = () => {
                                                                     }}
                                                                     placeholder="0"
                                                                     className={cn(
-                                                                        "w-full px-3 py-2 ring-1 ring-slate-200 border-none rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-primary/10",
+                                                                        "w-full px-3 py-2.5 ring-1 ring-slate-200 border-none rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-primary/10",
                                                                         editingItem?.ownerType === 'admin' ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "bg-white"
                                                                     )}
                                                                 />
                                                             </div>
-                                                            <div className="col-span-2 space-y-1">
-                                                                <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">SKU (Opt)</label>
+                                                            <div className="col-span-3 lg:col-span-2 space-y-1">
+                                                                <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">SKU</label>
                                                                 <input
                                                                     value={variant.sku}
                                                                     onChange={(e) => {
@@ -1195,17 +1228,18 @@ const ProductManagement = () => {
                                                                         newVariants[idx].sku = e.target.value;
                                                                         setFormData({ ...formData, variants: newVariants });
                                                                     }}
-                                                                    placeholder="SKU"
-                                                                    className="w-full px-3 py-2 bg-white ring-1 ring-slate-200 border-none rounded-lg text-[10px] font-semibold outline-none focus:ring-2 focus:ring-primary/10"
+                                                                    placeholder="Optional"
+                                                                    className="w-full px-3 py-2.5 bg-white ring-1 ring-slate-200 border-none rounded-xl text-[10px] font-semibold outline-none focus:ring-2 focus:ring-primary/10"
                                                                 />
                                                             </div>
                                                             <div className="col-span-1 py-1">
                                                                 <button
+                                                                    type="button"
                                                                     onClick={() => {
                                                                         const newVariants = formData.variants.filter((_, i) => i !== idx);
                                                                         setFormData({ ...formData, variants: newVariants });
                                                                     }}
-                                                                    className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                                                    className="p-2.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
                                                                 >
                                                                     <HiOutlineTrash className="h-4 w-4" />
                                                                 </button>
@@ -1221,18 +1255,20 @@ const ProductManagement = () => {
                                                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No Variants Added</p>
                                                     <p className="text-[10px] text-slate-400 mt-1">Variants allow you to offer the same product in different sizes or quantities.</p>
                                                     <button
+                                                        type="button"
                                                         onClick={() => setFormData({
                                                             ...formData,
-                                                            variants: [{ name: '', price: '', stock: '', sku: '' }]
+                                                            variants: [{ id: Date.now(), name: 'Default', price: '', salePrice: '', stock: '', sku: '' }]
                                                         })}
-                                                        className="mt-6 px-4 py-2 bg-white ring-1 ring-slate-200 rounded-xl text-[10px] font-bold text-slate-600 hover:bg-slate-50 transition-all"
+                                                        className="mt-6 px-6 py-2.5 bg-white ring-1 ring-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 transition-all shadow-sm"
                                                     >
-                                                        CREATE FIRST VARIANT
+                                                        Create First Variant
                                                     </button>
                                                 </div>
                                             )}
                                         </div>
                                     )}
+
                                 </div>
                             </div>
 
@@ -1256,6 +1292,17 @@ const ProductManagement = () => {
                     </div>
                 )}
             </AnimatePresence>
+
+            {/* Category Quick Modal */}
+            <CategoryQuickModal 
+                isOpen={isCategoryModalOpen}
+                onClose={() => setIsCategoryModalOpen(false)}
+                type={categoryModalConfig.type}
+                parentId={categoryModalConfig.parentId}
+                editItem={categoryModalConfig.editItem}
+                onSuccess={handleCategorySuccess}
+            />
+
             {/* Delete Confirmation Modal */}
             <Modal
                 isOpen={isDeleteModalOpen}

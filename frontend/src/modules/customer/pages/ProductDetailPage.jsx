@@ -160,9 +160,9 @@ const ProductDetailPage = () => {
     const isWishlisted = isInWishlist(product._id || product.id);
 
     const productDetails = [
-        { label: 'Unit', value: product.unit || 'Pieces' },
-        { label: 'Weight', value: product.weight || 'N/A' },
-        { label: 'Brand', value: product.brand || 'Fresh' }
+        { label: 'Unit', value: product.unit || product.masterProductId?.unit || 'Pieces' },
+        { label: 'Weight', value: product.weight || product.masterProductId?.weight || 'N/A' },
+        { label: 'Brand', value: product.brand || product.masterProductId?.brand || 'Fresh' }
     ];
 
     return (
@@ -237,7 +237,7 @@ const ProductDetailPage = () => {
                         </div>
 
                         <p className="text-slate-600 text-lg leading-relaxed mb-6 font-medium max-w-2xl">
-                            {product.description}
+                            {product.description || product.masterProductId?.description || "No description available for this item."}
                         </p>
                     </div>
 

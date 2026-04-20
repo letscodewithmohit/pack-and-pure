@@ -12,18 +12,20 @@ export const getCategories = async (req, res) => {
 
     // If tree structure is requested (for hierarchy explorer / public navigation)
     if (tree === "true") {
-      const selectFields = "name slug image iconId type parentId headerColor";
+      const selectFields = "name slug image iconId type parentId headerColor order";
       const categories = await Category.find({ type: "header" })
         .select(selectFields)
         .populate({
           path: "children",
           select: selectFields,
+          options: { sort: { order: 1, name: 1 } },
           populate: {
             path: "children",
             select: selectFields,
+            options: { sort: { order: 1, name: 1 } },
           },
         })
-        .sort({ name: 1 })
+        .sort({ order: 1, name: 1 })
         .lean();
       return handleResponse(res, 200, "Category tree fetched", categories);
     }
@@ -48,7 +50,7 @@ export const getCategories = async (req, res) => {
         ];
       }
       const [items, total] = await Promise.all([
-        Category.find(query).sort({ name: 1 }).skip(skip).limit(limit).lean(),
+        Category.find(query).sort({ order: 1, name: 1 }).skip(skip).limit(limit).lean(),
         Category.countDocuments(query),
       ]);
       return handleResponse(res, 200, "Categories fetched successfully", {
@@ -65,7 +67,7 @@ export const getCategories = async (req, res) => {
     if (type === "header" || type === "category" || type === "subcategory") {
       query.type = type;
     }
-    const categories = await Category.find(query).sort({ name: 1 }).lean();
+    const categories = await Category.find(query).sort({ order: 1, name: 1 }).lean();
     return handleResponse(
       res,
       200,
@@ -91,12 +93,22 @@ export const createCategory = async (req, res) => {
       );
     }
 
-    if (
-      categoryData.parentId === "" ||
-      categoryData.parentId === "null" ||
-      !categoryData.parentId
-    ) {
+    if (categoryData.parentId === "" || categoryData.parentId === "null" || !categoryData.parentId) {
       categoryData.parentId = null;
+    }
+
+    if (!categoryData.slug && categoryData.name) {
+      categoryData.slug = categoryData.name
+        .toLowerCase()
+        .trim()
+        .replace(/[^\w\s-]/g, "")
+        .replace(/[\s_-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      
+      const existing = await Category.findOne({ slug: categoryData.slug });
+      if (existing) {
+        categoryData.slug = `${categoryData.slug}-${Date.now().toString().slice(-4)}`;
+      }
     }
 
     const category = await Category.create(categoryData);

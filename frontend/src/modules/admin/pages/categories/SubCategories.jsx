@@ -38,6 +38,7 @@ const SubCategories = () => {
     status: "active",
     type: "subcategory",
     parentId: "",
+    order: 0,
   });
 
   const [imageFile, setImageFile] = useState(null);
@@ -159,6 +160,7 @@ const SubCategories = () => {
       status: "active",
       type: "subcategory",
       parentId: "",
+      order: 0,
     });
     setImageFile(null);
     setPreviewUrl(null);
@@ -174,6 +176,7 @@ const SubCategories = () => {
       status: item.status,
       type: "subcategory",
       parentId: item.parentId?._id || item.parentId || "",
+      order: item.order || 0,
     });
     setPreviewUrl(item.image?.url || item.image || null);
     setIsAddModalOpen(true);
@@ -292,6 +295,9 @@ const SubCategories = () => {
                   Slug
                 </th>
                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  Order
+                </th>
+                <th className="text-left py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Status
                 </th>
                 <th className="text-right py-3 px-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -355,6 +361,9 @@ const SubCategories = () => {
                         </div>
                       </td>
                       <td className="py-3 px-4 text-gray-500">{cat.slug}</td>
+                      <td className="py-3 px-4 text-gray-500 font-bold">
+                        #{cat.order || 0}
+                      </td>
                       <td className="py-3 px-4">
                         <Badge
                           variant={
@@ -499,19 +508,35 @@ const SubCategories = () => {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">
-                    Status
-                  </label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) =>
-                      setFormData({ ...formData, status: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-700">
+                      Status
+                    </label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) =>
+                        setFormData({ ...formData, status: e.target.value })
+                      }
+                      className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-indigo-600 font-bold">
+                      Priority Order
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.order}
+                      onChange={(e) =>
+                        setFormData({ ...formData, order: parseInt(e.target.value) || 0 })
+                      }
+                      className="w-full px-3 py-2 rounded-lg border-2 border-indigo-100 bg-indigo-50/50 focus:border-indigo-500 focus:outline-none text-indigo-700 font-bold"
+                      placeholder="0"
+                    />
+                  </div>
                 </div>
               </div>
 

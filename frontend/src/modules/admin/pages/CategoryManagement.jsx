@@ -42,7 +42,8 @@ const CategoryManagement = () => {
         description: '',
         status: 'active',
         type: 'header',
-        parentId: ''
+        parentId: '',
+        order: 0
     });
 
     const [imageFile, setImageFile] = useState(null);
@@ -231,7 +232,8 @@ const CategoryManagement = () => {
                 description: item.description || '',
                 status: item.status || 'active',
                 type: item.type,
-                parentId: item.parentId || ''
+                parentId: item.parentId || '',
+                order: item.order || 0
             });
             setEditingItem(item);
             setPreviewUrl(item.image || null);
@@ -243,7 +245,8 @@ const CategoryManagement = () => {
                 description: '',
                 status: 'active',
                 type: type,
-                parentId: parentId || ''
+                parentId: parentId || '',
+                order: 0
             });
             setEditingItem(null);
             setPreviewUrl(null);
@@ -305,6 +308,9 @@ const CategoryManagement = () => {
 
                                 <div className="flex flex-col">
                                     <div className="flex items-center space-x-1.5">
+                                        <div className="bg-indigo-600 text-white text-[8px] px-1.5 py-0.5 rounded-md font-black shadow-sm ring-1 ring-indigo-700/20">
+                                            PRIORITY #{item.order || 0}
+                                        </div>
                                         <span className={cn(
                                             "text-xs tracking-tight",
                                             level === 0 ? "font-bold text-gray-900" :
@@ -312,9 +318,6 @@ const CategoryManagement = () => {
                                         )}>
                                             {item.name}
                                         </span>
-                                        {item.status === 'inactive' && (
-                                            <Badge variant="gray" className="text-[7px] h-3 px-1 font-bold uppercase tracking-tighter">Draft</Badge>
-                                        )}
                                     </div>
                                     <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">{item.slug}</span>
                                 </div>
@@ -675,7 +678,7 @@ const CategoryManagement = () => {
                                         <h3 className="text-xl font-bold text-slate-900">{editingItem ? 'Edit Organization Unit' : 'Create New Unit'}</h3>
                                     </header>
 
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                         <div className="space-y-1">
                                             <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Display Name</label>
                                             <input
@@ -695,6 +698,17 @@ const CategoryManagement = () => {
                                         <div className="space-y-1">
                                             <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">URL Identifier (Slug)</label>
                                             <input value={formData.slug} readOnly className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-xs text-slate-400 font-bold outline-none" />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[9px] font-black text-indigo-500 uppercase tracking-widest ml-1">SET PRIORITY (Order No.)</label>
+                                            <input 
+                                                type="number"
+                                                value={formData.order}
+                                                onChange={(e) => setFormData({ ...formData, order: parseInt(e.target.value) || 0 })}
+                                                className="w-full px-4 py-2.5 bg-indigo-50 border-2 border-indigo-100 rounded-xl text-sm font-black text-indigo-700 outline-none focus:border-indigo-500 transition-all shadow-sm" 
+                                                placeholder="0"
+                                            />
+                                            <p className="text-[8px] text-slate-400 mt-1 uppercase font-bold">Lower number = Top of the list</p>
                                         </div>
                                     </div>
 

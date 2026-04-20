@@ -52,6 +52,10 @@ const categorySchema = new mongoose.Schema(
       type: String,
       trim: true, // Hex color selected in admin panel (e.g. #ff0000)
     },
+    order: {
+      type: Number,
+      default: 0, // Lower numbers show first (Priority)
+    },
   },
   {
     timestamps: true,
@@ -61,8 +65,8 @@ const categorySchema = new mongoose.Schema(
 );
 
 // Indexes for common queries
-categorySchema.index({ type: 1, status: 1 });
-categorySchema.index({ parentId: 1, status: 1 });
+categorySchema.index({ type: 1, status: 1, order: 1 });
+categorySchema.index({ parentId: 1, status: 1, order: 1 });
 categorySchema.index({ name: 1 });
 
 // Virtual for children categories
