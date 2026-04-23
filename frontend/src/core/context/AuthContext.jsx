@@ -47,6 +47,7 @@ export const AuthProvider = ({ children }) => {
 
     const currentRole = getCurrentRoleFromUrl();
     const [user, setUser] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
     const token = authData[currentRole];
     const isAuthenticated = !!token;
 
@@ -55,6 +56,7 @@ export const AuthProvider = ({ children }) => {
         const fetchProfile = async () => {
             if (token) {
                 try {
+                    setIsLoading(true);
                     // Use deduplicated fetch to avoid multiple simultaneous profile calls
                     const endpoint = getProfileEndpointByRole(currentRole);
                     const response = await getWithDedupe(endpoint, {}, { ttl: 5000 });
@@ -62,9 +64,12 @@ export const AuthProvider = ({ children }) => {
                 } catch (error) {
                     console.error('Failed to fetch profile:', error);
                     // If 401, axios interceptor will handle it
+                } finally {
+                    setIsLoading(false);
                 }
             } else {
                 setUser(null);
+                setIsLoading(false);
             }
         };
 
@@ -108,7 +113,6 @@ export const AuthProvider = ({ children }) => {
         setUser(null);
 
         // Final fallback: redirect based on current path if needed
-        // (ProtectedRoute usually handles this, but explicit navigation is safer for some UI edge cases)
         const path = window.location.pathname;
         if (path.startsWith('/admin')) window.location.href = '/admin/auth';
         else if (path.startsWith('/seller')) window.location.href = '/seller/auth';
@@ -133,9 +137,10 @@ export const AuthProvider = ({ children }) => {
     return (
         <AuthContext.Provider value={{
             user,
-            token, // Added token to context
+            token,
             role: currentRole,
             isAuthenticated,
+            isLoading,
             authData,
             login,
             logout,

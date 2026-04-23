@@ -68,8 +68,22 @@ const sellerSchema = new mongoose.Schema(
       type: Number,
       default: 5, // Default 5km
     },
+    documents: {
+      tradeLicense: String,
+      gstCertificate: String,
+      idProof: String,
+    },
+    category: {
+      type: String,
+      default: "General",
+    },
+    description: {
+      type: String,
+      default: "",
+    },
     lastLogin: Date,
   },
+
   { timestamps: true },
 );
 

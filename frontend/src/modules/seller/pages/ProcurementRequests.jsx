@@ -5,6 +5,7 @@ import Badge from "@shared/components/ui/Badge";
 import Input from "@shared/components/ui/Input";
 import { sellerApi } from "../services/sellerApi";
 import { useToast } from "@shared/components/ui/Toast";
+import { useAuth } from "@/core/context/AuthContext";
 
 const STATUS_OPTIONS = [
   { label: "All", value: "all" },
@@ -50,6 +51,8 @@ const canMarkReady = (row) => {
 
 const ProcurementRequests = () => {
   const { showToast } = useToast();
+  const { user } = useAuth();
+  const isVerified = user?.isVerified;
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("all");
   const [rows, setRows] = useState([]);
@@ -64,8 +67,8 @@ const ProcurementRequests = () => {
       const list = res?.data?.result?.items || [];
       setRows(Array.isArray(list) ? list : []);
     } catch (error) {
-      console.error("Failed to load procurement requests:", error);
-      showToast("Failed to load procurement requests", "error");
+      console.error("Failed to load purchase orders:", error);
+      showToast("Failed to load purchase orders", "error");
     } finally {
       setLoading(false);
     }
@@ -109,7 +112,7 @@ const ProcurementRequests = () => {
       showToast(successMessage, "success");
       await fetchRows();
     } catch (error) {
-      console.error("Procurement action failed:", error);
+      console.error("Purchase order action failed:", error);
       showToast(error?.response?.data?.message || "Action failed", "error");
     } finally {
       setSavingId("");
@@ -120,16 +123,16 @@ const ProcurementRequests = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-black text-slate-900">Procurement Requests</h1>
-          <p className="mt-1 text-sm font-medium text-slate-600">
-            Seller flow: accept/reject request, mark ready, and verify pickup OTP handover.
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Purchase Orders</h1>
+          <p className="mt-1 text-sm font-medium text-slate-500 uppercase tracking-wider">
+            SOP Step 9: Manage Hub Procurement Requests
           </p>
         </div>
         <div className="flex items-center gap-2">
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+            className="rounded-xl border-none bg-slate-100 px-4 py-2 text-xs font-black uppercase tracking-widest text-slate-700 outline-none focus:ring-2 focus:ring-indigo-600 transition-all"
           >
             {STATUS_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -137,7 +140,7 @@ const ProcurementRequests = () => {
               </option>
             ))}
           </select>
-          <Button onClick={fetchRows} variant="outline">
+          <Button onClick={fetchRows} variant="outline" className="rounded-xl font-black text-xs uppercase tracking-widest">
             Refresh
           </Button>
         </div>
@@ -216,23 +219,21 @@ const ProcurementRequests = () => {
 
                 <div className="mt-4 grid gap-2 md:grid-cols-3">
                   <Button
-                    isLoading={savingId === `${row._id}:accept`}
                     onClick={() =>
-                      act(
+                      isVerified ? act(
                         `${row._id}:accept`,
                         () => sellerApi.respondPurchaseRequest(row._id, { action: "accept" }),
                         "Request accepted",
-                      )
+                      ) : showToast("Account pending approval", "error")
                     }
-                    disabled={!canRespond(row)}
+                    disabled={!canRespond(row) || !isVerified}
                   >
                     Accept
                   </Button>
                   <Button
                     variant="danger"
-                    isLoading={savingId === `${row._id}:reject`}
                     onClick={() =>
-                      act(
+                      isVerified ? act(
                         `${row._id}:reject`,
                         () =>
                           sellerApi.respondPurchaseRequest(row._id, {
@@ -240,26 +241,25 @@ const ProcurementRequests = () => {
                             rejectionReason: notesMap[row._id] || "Rejected by seller",
                           }),
                         "Request rejected",
-                      )
+                      ) : showToast("Account pending approval", "error")
                     }
-                    disabled={!canRespond(row)}
+                    disabled={!canRespond(row) || !isVerified}
                   >
                     Reject
                   </Button>
                   <Button
                     variant="outline"
-                    isLoading={savingId === `${row._id}:ready`}
                     onClick={() =>
-                      act(
+                      isVerified ? act(
                         `${row._id}:ready`,
                         () =>
                           sellerApi.markPurchaseRequestReady(row._id, {
                             notes: notesMap[row._id] || "",
                           }),
                         "Marked ready for pickup",
-                      )
+                      ) : showToast("Account pending approval", "error")
                     }
-                    disabled={!canMarkReady(row)}
+                    disabled={!canMarkReady(row) || !isVerified}
                   >
                     Mark Ready
                   </Button>

@@ -8,7 +8,9 @@ export const adminApi = {
     getUserById: (id) => axiosInstance.get(`/admin/users/${id}`),
     getCodCustomers: (params) => axiosInstance.get('/admin/users-cod', { params }),
     updateUserCodPolicy: (id, data) => axiosInstance.patch(`/admin/users/${id}/cod-policy`, data),
-    approveSeller: (id) => axiosInstance.post(`/admin/approve-seller/${id}`),
+    approveSeller: (id) => axiosInstance.patch(`/admin/sellers/approve/${id}`),
+    rejectSeller: (id) => axiosInstance.delete(`/admin/sellers/reject/${id}`),
+
     getAdminWalletData: (params) => axiosInstance.get('/admin/wallet-data', { params }),
     getReports: () => axiosInstance.get('/admin/reports'),
     getProfile: () => axiosInstance.get('/admin/profile'),
@@ -26,6 +28,7 @@ export const adminApi = {
     getCategories: (params) => axiosInstance.get('/admin/categories', { params }),
     getCategoryTree: () => axiosInstance.get('/admin/categories?tree=true'),
     getSellers: (params) => axiosInstance.get('/admin/sellers', { params }),
+    getSellerById: (id) => axiosInstance.get(`/admin/sellers/${id}`),
     createSeller: (data) => axiosInstance.post('/admin/sellers', data),
     updateSeller: (id, data) => axiosInstance.put(`/admin/sellers/${id}`, data),
     createCategory: (formData) => axiosInstance.post('/admin/categories', formData, {

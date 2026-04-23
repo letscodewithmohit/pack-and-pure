@@ -12,8 +12,10 @@ export const customerApi = {
     getWithDedupe("/customer/transactions", params),
   getCategories: (params) =>
     getWithDedupe("/categories", params, { ttl: 60 * 1000 }), // 1 min for categories
-  getProducts: (params) => getWithDedupe("/products", params),
-  getProductById: (id, params) => getWithDedupe(`/products/${id}`, params),
+  // Keep a short TTL so admin-side edits (name/description/price) reflect quickly on the app.
+  getProducts: (params) => getWithDedupe("/products", params, { ttl: 5000 }),
+  getProductById: (id, params) =>
+    getWithDedupe(`/products/${id}`, params, { ttl: 5000 }),
 
   // Sellers & Location
   getNearbySellers: (params) => getWithDedupe("/seller/nearby", params),

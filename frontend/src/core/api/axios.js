@@ -68,7 +68,7 @@ axiosInstance.interceptors.response.use(
     (response) => response,
     async (error) => {
         const originalRequest = error.config;
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        if ((error.response?.status === 401 || error.response?.status === 403 || error.response?.status === 404) && !originalRequest._retry) {
             originalRequest._retry = true;
 
             const sentAuthHeader = Boolean(originalRequest?.headers?.Authorization || originalRequest?.headers?.authorization);
@@ -89,9 +89,14 @@ axiosInstance.interceptors.response.use(
                 localStorage.removeItem(targetKey);
             }
             localStorage.removeItem('token');
+            localStorage.removeItem('user');
 
-            window.location.reload();
+            window.location.href = pagePath.startsWith('/admin') ? '/admin/auth' : 
+                                 pagePath.startsWith('/seller') ? '/seller/auth' : 
+                                 pagePath.startsWith('/delivery') ? '/delivery/auth' : 
+                                 pagePath.startsWith('/pickup') ? '/pickup/auth' : '/login';
         }
+
         return Promise.reject(error);
     }
 );

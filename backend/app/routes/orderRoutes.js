@@ -26,7 +26,7 @@ import {
   getOrderRoute,
 } from "../controller/orderWorkflowController.js";
 // Assuming there's a middleware to verify customer token
-import { verifyToken } from "../middleware/authMiddleware.js";
+import { verifyToken, allowRoles, isAccountVerified } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -40,7 +40,7 @@ router.post("/:orderId/returns", verifyToken, requestReturn);
 router.get("/:orderId/returns", verifyToken, getReturnDetails);
 
 // Admin/Seller routes (might need different auth middleware for role checks)
-import { allowRoles } from "../middleware/authMiddleware.js";
+
 router.get(
   "/seller-orders",
   verifyToken,
@@ -78,24 +78,28 @@ router.get(
   "/available",
   verifyToken,
   allowRoles("admin", "delivery"),
+  isAccountVerified,
   getAvailableOrders,
 );
 router.put(
   "/accept/:orderId",
   verifyToken,
   allowRoles("admin", "delivery"),
+  isAccountVerified,
   acceptOrder,
 );
 router.put(
   "/skip/:orderId",
   verifyToken,
   allowRoles("admin", "delivery"),
+  isAccountVerified,
   skipOrder,
 );
 router.put(
   "/return-status/:orderId",
   verifyToken,
   allowRoles("admin", "delivery"),
+  isAccountVerified,
   updateReturnStatus,
 );
 
@@ -103,30 +107,35 @@ router.post(
   "/workflow/:orderId/pickup/confirm",
   verifyToken,
   allowRoles("delivery", "admin"),
+  isAccountVerified,
   confirmPickup,
 );
 router.post(
   "/workflow/:orderId/pickup/ready",
   verifyToken,
   allowRoles("delivery", "admin"),
+  isAccountVerified,
   markArrivedAtStore,
 );
 router.post(
   "/workflow/:orderId/rider/advance-ui",
   verifyToken,
   allowRoles("delivery", "admin"),
+  isAccountVerified,
   advanceDeliveryRiderUi,
 );
 router.post(
   "/workflow/:orderId/otp/request",
   verifyToken,
   allowRoles("delivery", "admin"),
+  isAccountVerified,
   requestDeliveryOtp,
 );
 router.post(
   "/workflow/:orderId/otp/verify",
   verifyToken,
   allowRoles("delivery", "admin"),
+  isAccountVerified,
   verifyDeliveryOtp,
 );
 router.get(

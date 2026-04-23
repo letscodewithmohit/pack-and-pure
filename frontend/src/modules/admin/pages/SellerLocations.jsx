@@ -14,82 +14,12 @@ import {
 } from 'react-icons/hi2';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { adminApi } from '../services/adminApi';
+import { toast } from 'sonner';
 
 const SellerLocations = () => {
-    // Mock Data for All Active Sellers
-    const [sellers] = useState([
-        {
-            id: 's1',
-            shopName: 'Fresh Mart Superstore',
-            category: 'Grocery',
-            location: 'Mumbai, Maharashtra',
-            coords: { lat: 19.0760, lng: 72.8777 },
-            serviceRadius: 5,
-            activeOrders: 12,
-            performance: 'High'
-        },
-        {
-            id: 's2',
-            shopName: 'Tech Zone Electronics',
-            category: 'Electronics',
-            location: 'Bangalore, Karnataka',
-            coords: { lat: 12.9716, lng: 77.5946 },
-            serviceRadius: 12,
-            activeOrders: 4,
-            performance: 'Stable'
-        },
-        {
-            id: 's3',
-            shopName: 'Organic Greens Co.',
-            category: 'Fruits & Veggies',
-            location: 'Delhi, NCR',
-            coords: { lat: 28.6139, lng: 77.2090 },
-            serviceRadius: 10,
-            activeOrders: 28,
-            performance: 'Peak'
-        },
-        {
-            id: 's4',
-            shopName: 'Dairy Pure Farms',
-            category: 'Dairy',
-            location: 'Pune, Maharashtra',
-            coords: { lat: 18.5204, lng: 73.8567 },
-            serviceRadius: 8,
-            activeOrders: 15,
-            performance: 'High'
-        },
-        {
-            id: 's5',
-            shopName: 'Green Valley',
-            category: 'Grocery',
-            location: 'Mumbai, MH',
-            coords: { lat: 19.1, lng: 72.9 },
-            serviceRadius: 4,
-            activeOrders: 8,
-            performance: 'Stable'
-        },
-        {
-            id: 's6',
-            shopName: 'Pantry Plus',
-            category: 'Grocery',
-            location: 'Mumbai, MH',
-            coords: { lat: 19.2, lng: 72.85 },
-            serviceRadius: 6,
-            activeOrders: 20,
-            performance: 'High'
-        },
-        {
-            id: 's7',
-            shopName: 'Quick Mart',
-            category: 'Grocery',
-            location: 'Mumbai, MH',
-            coords: { lat: 19.15, lng: 72.8 },
-            serviceRadius: 3,
-            activeOrders: 5,
-            performance: 'Stable'
-        }
-    ]);
-
+    const [sellers, setSellers] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedSeller, setSelectedSeller] = useState(null);
     const [mapView, setMapView] = useState('coverage'); // coverage or density
@@ -101,9 +31,45 @@ const SellerLocations = () => {
         minRadius: 0
     });
 
+    const fetchSellers = async () => {
+        try {
+            setIsLoading(true);
+            const res = await adminApi.getSellers({ verified: 'true' });
+            const payload = res?.data?.result || {};
+            const items = Array.isArray(payload.items) ? payload.items : [];
+            
+            // Format data for the map component
+            const formattedSellers = items.map(s => ({
+                id: s._id,
+                shopName: s.shopName,
+                category: s.category || 'General',
+                location: s.address || 'Location Shared',
+                coords: { 
+                    lat: s.location?.coordinates?.[1] || 28.6139, 
+                    lng: s.location?.coordinates?.[0] || 77.2090 
+                },
+                serviceRadius: s.serviceRadius || 5,
+                activeOrders: 0, // In a real app, this would come from an orders API
+                performance: 'Stable'
+            }));
+
+            setSellers(formattedSellers);
+        } catch (error) {
+            console.error('Fetch sellers failed:', error);
+            toast.error('Failed to load real-time map data');
+        } finally {
+            setIsLoading(false);
+            setIsRefreshing(false);
+        }
+    };
+
+    React.useEffect(() => {
+        fetchSellers();
+    }, []);
+
     const handleRefresh = () => {
         setIsRefreshing(true);
-        setTimeout(() => setIsRefreshing(false), 1200);
+        fetchSellers();
     };
 
     const filteredSellers = useMemo(() => {
@@ -237,12 +203,17 @@ const SellerLocations = () => {
                         </div>
 
                         <div
-                            className="overflow-y-auto overscroll-contain touch-pan-y px-1 pb-10"
+                            className="overflow-y-auto overscroll-contain touch-pan-y px-1 pb-10 relative min-h-[300px]"
                             style={{ height: '400px', display: 'block' }}
-                            tabIndex={0}
-                            onWheel={(e) => e.stopPropagation()}
-                            onTouchMove={(e) => e.stopPropagation()}
                         >
+                            {isLoading && (
+                                <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-[2px]">
+                                    <div className="flex flex-col items-center gap-2">
+                                        <div className="h-8 w-8 border-4 border-slate-200 border-t-primary rounded-full animate-spin" />
+                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Syncing Nodes...</p>
+                                    </div>
+                                </div>
+                            )}
                             <div className="flex flex-col gap-2">
                                 {filteredSellers.map(s => (
                                     <button

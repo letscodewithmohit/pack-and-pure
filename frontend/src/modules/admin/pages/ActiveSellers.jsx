@@ -23,6 +23,7 @@ import {
 } from 'react-icons/hi2';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { adminApi } from '../services/adminApi';
 
 const ActiveSellers = () => {
     const navigate = useNavigate();
@@ -32,9 +33,28 @@ const ActiveSellers = () => {
     const fetchSellers = async () => {
         try {
             setIsLoading(true);
-            const res = await adminApi.getSellers({ page: 1, limit: 1000 });
-            const payload = res?.data?.result || {};
-            const items = Array.isArray(payload.items) ? payload.items : [];
+            const res = await adminApi.getSellers({ verified: 'true' });
+            console.log("Verified Sellers API Response:", res.data);
+
+            // Maximum robustness in data extraction
+            const rawData = res.data;
+            let items = [];
+
+            if (rawData?.result?.items && Array.isArray(rawData.result.items)) {
+                items = rawData.result.items;
+            } else if (rawData?.result && Array.isArray(rawData.result)) {
+                items = rawData.result;
+            } else if (rawData?.results && Array.isArray(rawData.results)) {
+                items = rawData.results;
+            } else if (rawData?.data?.items && Array.isArray(rawData.data.items)) {
+                items = rawData.data.items;
+            } else if (rawData?.data && Array.isArray(rawData.data)) {
+                items = rawData.data;
+            } else if (Array.isArray(rawData)) {
+                items = rawData;
+            }
+
+            console.table(items); // Helpful for debugging in browser console
             setSellers(items);
         } catch (error) {
             console.error('Fetch sellers failed:', error);
@@ -71,21 +91,34 @@ const ActiveSellers = () => {
         serviceRadius: 5
     });
 
-    const stats = useMemo(() => ({
-        total: sellers.length,
-        topRated: sellers.filter(s => (s.rating || 0) >= 4.7).length,
-        highVolume: sellers.filter(s => (s.totalOrders || 0) > 100).length,
-        totalRevenue: sellers.reduce((acc, current) => acc + (current.revenue || 0), 0)
-    }), [sellers]);
+    const stats = useMemo(() => {
+        const verifiedCount = sellers.length;
+        const totalRevenue = sellers.reduce((acc, s) => acc + (Number(s.totalRevenue) || 0), 0);
+        return {
+            total: verifiedCount,
+            topRated: sellers.filter(s => (Number(s.rating) || 0) >= 4.5).length,
+            highVolume: sellers.filter(s => (Number(s.totalOrders) || 0) > 50).length,
+            totalRevenue: totalRevenue
+        };
+    }, [sellers]);
 
     const filteredSellers = useMemo(() => {
         return sellers.filter(s => {
-            const matchesSearch = (s.shopName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (s.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                (s.email || '').toLowerCase().includes(searchTerm.toLowerCase());
+            const shop = (s.shopName || '').toLowerCase();
+            const owner = (s.name || '').toLowerCase();
+            const mail = (s.email || '').toLowerCase();
+            const term = searchTerm.toLowerCase();
+
+            const matchesSearch = shop.includes(term) || owner.includes(term) || mail.includes(term);
             const matchesCategory = filterCategory === 'all' || s.category === filterCategory;
-            const matchesRevenue = (s.revenue || 0) >= advancedFilters.minRevenue;
-            const matchesRating = (s.rating || 0) >= advancedFilters.minRating;
+            
+            // Default to 0 if fields are missing
+            const revenue = Number(s.totalRevenue) || Number(s.revenue) || 0;
+            const rating = Number(s.rating) || 0;
+
+            const matchesRevenue = revenue >= (Number(advancedFilters.minRevenue) || 0);
+            const matchesRating = rating >= (Number(advancedFilters.minRating) || 0);
+            
             return matchesSearch && matchesCategory && matchesRevenue && matchesRating;
         });
     }, [sellers, searchTerm, filterCategory, advancedFilters]);
@@ -283,7 +316,7 @@ const ActiveSellers = () => {
                                     <td className="px-6 py-4">
                                         <div
                                             className="flex items-center gap-4 cursor-pointer group/name"
-                                            onClick={() => openSellerDetails(s)}
+                                            onClick={() => navigate(`/admin/sellers/active/${s._id}`)}
                                         >
                                             <div className="h-12 w-12 rounded-2xl overflow-hidden bg-slate-100 ring-2 ring-slate-100 group-hover:ring-primary/20 transition-all flex items-center justify-center text-slate-300">
                                                 <HiOutlineBuildingOffice2 className="h-6 w-6" />

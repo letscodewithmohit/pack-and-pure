@@ -33,6 +33,7 @@ import CategoryQuickModal from '../components/CategoryQuickModal';
 
 const ProductManagement = () => {
     const [products, setProducts] = useState([]);
+    const [isSearchingMaster, setIsSearchingMaster] = useState(false);
     const [categories, setCategories] = useState([]); // All categories for dropdowns
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(25);
@@ -250,9 +251,21 @@ const ProductManagement = () => {
             const data = new FormData();
             
             // Required fields validation
-            if (!formData.name || !finalPrice || finalStock === '' || !formData.header || !formData.categoryId) {
+            const missing = [];
+            const parsedPrice = Number(finalPrice);
+            const parsedStock = Number(finalStock);
+
+            if (!String(formData.name || '').trim()) missing.push('Name');
+            if (!finalPrice || Number.isNaN(parsedPrice) || parsedPrice <= 0) missing.push('Price');
+            if (finalStock === '' || finalStock === null || Number.isNaN(parsedStock) || parsedStock < 0) missing.push('Stock');
+            if (!formData.header) missing.push('Main Group');
+            if (!formData.categoryId) missing.push('Specific Category');
+            if (!formData.subcategoryId) missing.push('Sub-Category');
+
+            if (missing.length > 0) {
                 setIsSaving(false);
-                return toast.error('Required fields missing: Name, Price, Stock or Category');
+                if (!formData.header || !formData.categoryId || !formData.subcategoryId) setModalTab('category');
+                return toast.error(`Required fields missing: ${missing.join(', ')}`);
             }
 
             // Explicitly prepare the payload to avoid circular references or invalid types

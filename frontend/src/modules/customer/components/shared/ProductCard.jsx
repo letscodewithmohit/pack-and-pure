@@ -247,6 +247,16 @@ const ProductCard = React.memo(
             </h4>
           </div>
 
+          {product.description ? (
+            <p
+              className={cn(
+                "text-gray-500 line-clamp-1",
+                compact ? "text-[9px] mt-0.5" : "text-[10px] mt-1",
+              )}>
+              {String(product.description).replace(/<[^>]*>/g, "").trim()}
+            </p>
+          ) : null}
+
           {/* Delivery Time & Unit info */}
           <div className="flex items-center gap-1.5 text-gray-500 mt-1 mb-2">
             <Clock size={compact ? 10 : 11} className="text-emerald-500/80" />

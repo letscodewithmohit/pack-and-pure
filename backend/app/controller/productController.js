@@ -186,7 +186,7 @@ export const getProducts = async (req, res) => {
 
     const products = await Product.find(query)
       .select(
-        "name slug price salePrice stock brand weight unit mainImage headerId categoryId subcategoryId sellerId ownerType status isFeatured variants createdAt",
+        "name slug description price salePrice stock brand weight unit mainImage headerId categoryId subcategoryId sellerId ownerType status isFeatured variants createdAt",
       )
       .populate("headerId", "name")
       .populate("categoryId", "name")
@@ -239,16 +239,20 @@ export const getProducts = async (req, res) => {
 
     const productsWithSource = products.map((p) => {
       const pIdStr = String(p._id);
+      const hubData = hubRowsForResult.find(r => String(r.productId) === pIdStr);
       
       if (p.ownerType === 'admin') {
-        const hubQty = hubMap.get(pIdStr) || 0;
+        const hubQty = hubData ? Number(hubData.hubStockQuantity || hubData.availableQty || 0) : 0;
         const mappedSellerStock = sellerStockMap.get(pIdStr) || 0;
-        // Total = Hub Stock + Seller Stock (Master Catalog shows aggregated availability)
-        // We do not add p.stock here because p.stock is now synced with hubQty to avoid double counting.
         const totalAvailableQty = hubQty + mappedSellerStock;
+        
+        // SOP Alignment: Use dynamic sellPrice from Hub Inventory if available
+        const dynamicPrice = hubData?.sellPrice && hubData.sellPrice > 0 ? hubData.sellPrice : p.salePrice || p.price;
         
         return {
           ...p,
+          price: dynamicPrice, // Override with Hub Price
+          salePrice: dynamicPrice,
           stock: totalAvailableQty,
           availableQtyHub: hubQty,
           availableQtySeller: mappedSellerStock,
@@ -257,8 +261,8 @@ export const getProducts = async (req, res) => {
         };
       }
       
-      // For seller products, keep their original stock and just check if they are in Hub
-      const hubQtyForSeller = hubMap.get(pIdStr) || 0;
+      // For seller products, check for hub price too if linked to a master
+      const hubQtyForSeller = hubData ? Number(hubData.availableQty || 0) : 0;
       return {
         ...p,
         availableQtyHub: hubQtyForSeller,

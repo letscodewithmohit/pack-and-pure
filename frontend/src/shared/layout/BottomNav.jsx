@@ -26,7 +26,7 @@ const BottomNav = ({ navItems }) => {
         { label: 'Wallet', path: '/admin/wallet', icon: Wallet },
     ] : [
         { label: 'Dashboard', path: '/seller', icon: LayoutDashboard, end: true },
-        { label: 'Orders', path: '/seller/orders', icon: ClipboardList },
+        { label: 'Orders', path: '/seller/procurement', icon: ClipboardList },
         { label: 'Products', path: '/seller/products', icon: Box },
         { label: 'Earnings', path: '/seller/earnings', icon: Wallet },
     ];

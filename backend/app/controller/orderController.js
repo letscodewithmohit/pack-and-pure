@@ -869,13 +869,12 @@ export const updateOrderStatus = async (req, res) => {
     if (order.workflowVersion >= 2 && role === "seller") {
       if (status === "confirmed") {
         try {
-          // If this is a hub order, we might need to accept a purchase request instead
-          // based on the seller acting on the order.
+          // SOP Step 9: Vendor receives purchase request through their seller application.
+          // Sellers (Vendors) do NOT fulfill customer orders directly. They only fulfill Purchase Requests to the Hub.
           if (order.hubFlowEnabled) {
             console.log(`[updateOrderStatus] Hub-flow order detected: ${order.orderId}. Checking PR for vendor: ${userId}`);
             const PurchaseRequest = mongoose.model("PurchaseRequest");
             
-            // Explicitly cast to ObjectId for robust matching
             const vendorObjectId = new mongoose.Types.ObjectId(userId);
             
             const pr = await PurchaseRequest.findOne({
@@ -889,7 +888,7 @@ export const updateOrderStatus = async (req, res) => {
               pr.vendorResponse = {
                 status: "accepted",
                 respondedAt: new Date(),
-                notes: "Accepted via order dashboard modal",
+                notes: "Accepted via vendor dashboard",
               };
               pr.status = "vendor_confirmed";
               await pr.save();
@@ -904,15 +903,13 @@ export const updateOrderStatus = async (req, res) => {
                 },
                });
 
-              return handleResponse(res, 200, "Purchase request confirmed", order);
+              return handleResponse(res, 200, "Purchase request confirmed. Preparing for pickup.", order);
             } else {
-              console.log(`[updateOrderStatus] No pending 'created' PR found for order ${order.orderId} and vendor ${userId}. Fallback to direct acceptance.`);
+              return handleResponse(res, 400, "No pending purchase request found for this order.");
             }
+          } else {
+            return handleResponse(res, 400, "Direct fulfillment is disabled. Orders must go through the Hub.");
           }
-
-          // Fallback to standard direct-seller acceptance
-          const updated = await sellerAcceptAtomic(userId, canonicalOrderId);
-          return handleResponse(res, 200, "Order accepted", updated);
         } catch (e) {
           return handleResponse(res, e.statusCode || 500, e.message);
         }
@@ -1461,7 +1458,12 @@ export const getSellerOrders = async (req, res) => {
      */
     if (statusParam && statusParam !== "all") {
       if (statusParam === "pending") {
-        query.status = "pending";
+        query.$or = [
+          { status: "pending" },
+          { workflowStatus: "DELIVERY_SEARCH" },
+          { workflowStatus: "CREATED" },
+          { workflowStatus: "SELLER_PENDING" }
+        ];
       } else if (statusParam === "processed") {
         query.status = { $in: ["confirmed", "packed"] };
       } else if (statusParam === "out-for-delivery") {

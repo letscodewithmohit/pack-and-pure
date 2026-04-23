@@ -312,6 +312,28 @@ const DashboardLayout = ({ children, navItems, title }) => {
                 <Topbar onMenuClick={() => setIsSidebarOpen(true)} />
                 <main className={cn("p-4 md:p-6 min-h-screen", (role === "admin" || role === "seller") ? "pt-20 md:pt-6 pb-24 md:pb-6" : "pt-20")}>
                     <div className="w-full pb-12">
+                        {role === 'seller' && user && !user.isVerified && (
+                            <motion.div
+                                initial={{ opacity: 0, y: -10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center gap-4 text-amber-800 shadow-sm"
+                            >
+                                <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                                    <Clock className="h-5 w-5 text-amber-600" />
+                                </div>
+                                <div className="flex-1">
+                                    <h4 className="font-bold text-sm md:text-base">Account Pending Approval</h4>
+                                    <p className="text-xs md:text-sm opacity-90">
+                                        Your account is currently being reviewed by our team. You can explore the panel, but you cannot add products or fulfill orders until verified.
+                                    </p>
+                                </div>
+                                <div className="hidden md:block">
+                                    <span className="px-3 py-1 rounded-full bg-amber-200 text-amber-900 text-xs font-bold uppercase tracking-wider">
+                                        Under Review
+                                    </span>
+                                </div>
+                            </motion.div>
+                        )}
                         <SellerOrdersContext.Provider
                             value={{
                                 orders: role === 'seller' ? sellerOrders : [],

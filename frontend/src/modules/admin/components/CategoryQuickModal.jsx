@@ -12,6 +12,7 @@ const CategoryQuickModal = ({ isOpen, onClose, type, parentId, onSuccess, editIt
     const [imageFile, setImageFile] = useState(null);
     const fileInputRef = useRef(null);
     const [parentUnits, setParentUnits] = useState([]);
+    const [errors, setErrors] = useState({});
 
     const [formData, setFormData] = useState({
         name: '',
@@ -26,13 +27,14 @@ const CategoryQuickModal = ({ isOpen, onClose, type, parentId, onSuccess, editIt
     useEffect(() => {
         if (isOpen) {
             fetchParents();
+            setErrors({});
             if (editItem) {
                 setFormData({
                     name: editItem.name || '',
                     slug: editItem.slug || '',
                     description: editItem.description || '',
                     status: editItem.status || 'active',
-                    type: editItem.type || type,
+                    type: editItem.type || type || 'header',
                     parentId: editItem.parentId || parentId || '',
                     order: editItem.order || 0
                 });
@@ -43,7 +45,7 @@ const CategoryQuickModal = ({ isOpen, onClose, type, parentId, onSuccess, editIt
                     slug: '',
                     description: '',
                     status: 'active',
-                    type: type,
+                    type: type || 'header',
                     parentId: parentId || '',
                     order: 0
                 });
@@ -52,6 +54,13 @@ const CategoryQuickModal = ({ isOpen, onClose, type, parentId, onSuccess, editIt
             }
         }
     }, [isOpen, editItem, type, parentId]);
+
+    const makeSlug = (value) =>
+        String(value || '')
+            .toLowerCase()
+            .trim()
+            .replace(/ /g, '-')
+            .replace(/[^\w-]+/g, '');
 
     const fetchParents = async () => {
         try {
@@ -70,8 +79,24 @@ const CategoryQuickModal = ({ isOpen, onClose, type, parentId, onSuccess, editIt
         }
     };
 
+    const validate = () => {
+        const nextErrors = {};
+        const trimmedName = String(formData.name || '').trim();
+        const nextSlug = makeSlug(trimmedName);
+
+        if (!trimmedName) nextErrors.name = 'Name is required';
+        if (trimmedName && !nextSlug) nextErrors.name = 'Please enter a valid name';
+
+        if (formData.type !== 'header' && !formData.parentId) {
+            nextErrors.parentId = 'Parent is required';
+        }
+
+        setErrors(nextErrors);
+        return Object.keys(nextErrors).length === 0;
+    };
+
     const handleSave = async () => {
-        if (!formData.name) return toast.error('Name is required');
+        if (!validate()) return toast.error('Please fill required fields');
 
         setIsSaving(true);
         try {
@@ -173,20 +198,30 @@ const CategoryQuickModal = ({ isOpen, onClose, type, parentId, onSuccess, editIt
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             <div className="space-y-1.5 flex flex-col">
-                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">Classification Name</label>
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">
+                                    Classification Name <span className="text-rose-500">*</span>
+                                </label>
                                 <input
                                     value={formData.name}
                                     onChange={(e) => {
                                         const val = e.target.value;
+                                        if (errors.name) setErrors(prev => ({ ...prev, name: undefined }));
                                         setFormData({
                                             ...formData,
                                             name: val,
-                                            slug: val.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '')
+                                            slug: makeSlug(val)
                                         });
                                     }}
-                                    className="w-full px-6 py-3.5 bg-slate-100/50 border-none rounded-2xl text-[13px] font-bold text-slate-700 outline-none ring-primary/5 focus:ring-2 placeholder:text-slate-300"
+                                    onBlur={validate}
+                                    className={cn(
+                                        "w-full px-6 py-3.5 bg-slate-100/50 border-none rounded-2xl text-[13px] font-bold text-slate-700 outline-none ring-primary/5 focus:ring-2 placeholder:text-slate-300",
+                                        errors.name && "ring-rose-500/40 focus:ring-rose-500/40"
+                                    )}
                                     placeholder="e.g. Fresh Produce"
                                 />
+                                {errors.name && (
+                                    <p className="text-[10px] font-bold text-rose-500 ml-4">{errors.name}</p>
+                                )}
                             </div>
                             <div className="space-y-1.5 flex flex-col">
                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">System Slug</label>
@@ -206,12 +241,21 @@ const CategoryQuickModal = ({ isOpen, onClose, type, parentId, onSuccess, editIt
 
                         {formData.type !== 'header' && (
                             <div className="space-y-1.5 flex flex-col">
-                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">Hierarchy Positioning</label>
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-4">
+                                    Hierarchy Positioning <span className="text-rose-500">*</span>
+                                </label>
                                 <div className="relative group">
                                     <select
                                         value={formData.parentId}
-                                        onChange={(e) => setFormData({ ...formData, parentId: e.target.value })}
-                                        className="w-full px-6 py-3.5 bg-slate-100/50 border-none rounded-2xl text-[13px] font-bold text-slate-700 outline-none appearance-none cursor-pointer group-hover:bg-slate-100 transition-colors"
+                                        onChange={(e) => {
+                                            if (errors.parentId) setErrors(prev => ({ ...prev, parentId: undefined }));
+                                            setFormData({ ...formData, parentId: e.target.value });
+                                        }}
+                                        onBlur={validate}
+                                        className={cn(
+                                            "w-full px-6 py-3.5 bg-slate-100/50 border-none rounded-2xl text-[13px] font-bold text-slate-700 outline-none appearance-none cursor-pointer group-hover:bg-slate-100 transition-colors",
+                                            errors.parentId && "ring-2 ring-rose-500/30"
+                                        )}
                                     >
                                         <option value="">Choose Parent Catalog</option>
                                         {parentUnits
@@ -229,6 +273,9 @@ const CategoryQuickModal = ({ isOpen, onClose, type, parentId, onSuccess, editIt
                                     </select>
                                     <ChevronDown className="absolute right-5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none group-hover:text-primary transition-colors" />
                                 </div>
+                                {errors.parentId && (
+                                    <p className="text-[10px] font-bold text-rose-500 ml-4">{errors.parentId}</p>
+                                )}
                             </div>
                         )}
 

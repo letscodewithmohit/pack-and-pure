@@ -201,7 +201,9 @@ const ProductDetailSheet = () => {
 
     if (!selectedProduct) return null;
 
-    const cleanDesc = cleanDescription(selectedProduct?.description);
+    const cleanDesc = cleanDescription(
+        selectedProduct?.description || selectedProduct?.masterProductId?.description,
+    );
 
     return (
         <AnimatePresence>

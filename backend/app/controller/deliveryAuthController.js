@@ -108,7 +108,7 @@ export const loginDelivery = async (req, res) => {
         const delivery = await Delivery.findOne({ phone });
 
         if (!delivery || !delivery.isVerified) {
-            return handleResponse(res, 404, "Delivery partner not found");
+            return handleResponse(res, 404, "Delivery partner not found or pending admin approval");
         }
 
         const otp = generateOTP();
@@ -154,8 +154,10 @@ export const verifyDeliveryOTP = async (req, res) => {
             return handleResponse(res, 400, "Invalid or expired OTP");
         }
 
-        delivery.isVerified = true;
-        delivery.isOnline = true; // Auto-activate delivery boy on login
+        // SOP Update: OTP verification only proves the phone number. 
+        // Verification (Approval) must be done by Admin manually.
+        // delivery.isVerified = true; 
+        delivery.isOnline = true; 
         delivery.otp = undefined;
         delivery.otpExpiry = undefined;
         delivery.lastLogin = new Date();

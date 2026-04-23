@@ -1,13 +1,11 @@
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import DashboardLayout from "@shared/layout/DashboardLayout";
-import Orders from "../pages/Orders";
 import {
   HiOutlineSquares2X2,
   HiOutlineCube,
   HiOutlineCurrencyDollar,
   HiOutlineUser,
-  HiOutlineTruck,
   HiOutlineClipboardDocumentList,
   HiOutlineArchiveBox,
   HiOutlineChartBarSquare,
@@ -21,7 +19,6 @@ const ProductManagement = React.lazy(
 );
 const StockManagement = React.lazy(() => import("../pages/StockManagement"));
 const AddProduct = React.lazy(() => import("../pages/AddProduct"));
-// Note: Orders is imported eagerly above to avoid dynamic import issues
 const Returns = React.lazy(() => import("../pages/Returns"));
 const ProcurementRequests = React.lazy(
   () => import("../pages/ProcurementRequests"),
@@ -37,21 +34,20 @@ const navItems = [
   { label: "Dashboard", path: "/seller", icon: HiOutlineSquares2X2, end: true },
   { label: "Products", path: "/seller/products", icon: HiOutlineCube },
   { label: "Stock", path: "/seller/inventory", icon: HiOutlineArchiveBox },
-  { label: "Orders", path: "/seller/orders", icon: HiOutlineTruck },
   {
-    label: "Procurement",
+    label: "Purchase Orders",
     path: "/seller/procurement",
     icon: HiOutlineClipboardDocumentList,
   },
   { label: "Returns", path: "/seller/returns", icon: HiOutlineArchiveBox },
-  { label: "Track Orders", path: "/seller/tracking", icon: HiOutlineMapPin },
+  { label: "Track Shipments", path: "/seller/tracking", icon: HiOutlineMapPin },
   {
     label: "Sales Reports",
     path: "/seller/analytics",
     icon: HiOutlineChartBarSquare,
   },
   {
-    label: "Money Request",
+    label: "Withdrawals",
     path: "/seller/withdrawals",
     icon: HiOutlineCurrencyDollar,
   },
@@ -70,13 +66,12 @@ const navItems = [
 
 const SellerRoutes = () => {
   return (
-    <DashboardLayout navItems={navItems} title="Seller Panel">
+    <DashboardLayout navItems={navItems} title="Vendor Panel">
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/products" element={<ProductManagement />} />
         <Route path="/products/add" element={<AddProduct />} />
         <Route path="/inventory" element={<StockManagement />} />
-        <Route path="/orders" element={<Orders />} />
         <Route path="/procurement" element={<ProcurementRequests />} />
         <Route path="/returns" element={<Returns />} />
         <Route path="/tracking" element={<DeliveryTracking />} />

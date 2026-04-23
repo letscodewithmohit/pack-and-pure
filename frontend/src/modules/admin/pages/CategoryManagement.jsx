@@ -36,6 +36,13 @@ const CategoryManagement = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [parentUnits, setParentUnits] = useState([]);
 
+    const makeSlug = (value) =>
+        String(value || '')
+            .toLowerCase()
+            .trim()
+            .replace(/ /g, '-')
+            .replace(/[^\w-]+/g, '');
+
     const [formData, setFormData] = useState({
         name: '',
         slug: '',
@@ -174,17 +181,24 @@ const CategoryManagement = () => {
     };
 
     const handleSave = async () => {
-        if (!formData.name || !formData.slug) {
-            toast.error('Name and slug are required');
-            return;
-        }
+        const trimmedName = String(formData.name || '').trim();
+        const nextSlug = makeSlug(trimmedName);
+        const nextParentId = formData.type === 'header' ? '' : String(formData.parentId || '');
+
+        if (!trimmedName) return toast.error('Name is required');
+        if (!nextSlug) return toast.error('Please enter a valid name');
+        if (formData.type !== 'header' && !nextParentId) return toast.error('Parent is required');
 
         setIsSaving(true);
         try {
             const data = new FormData();
-            Object.keys(formData).forEach(key => {
-                data.append(key, formData[key]);
-            });
+            const payload = {
+                ...formData,
+                name: trimmedName,
+                slug: nextSlug,
+                parentId: nextParentId
+            };
+            Object.keys(payload).forEach(key => data.append(key, payload[key]));
             if (imageFile) {
                 data.append('image', imageFile);
             }
@@ -232,7 +246,7 @@ const CategoryManagement = () => {
                 description: item.description || '',
                 status: item.status || 'active',
                 type: item.type,
-                parentId: item.parentId || '',
+                parentId: item.type === 'header' ? '' : (item.parentId || ''),
                 order: item.order || 0
             });
             setEditingItem(item);
@@ -245,7 +259,7 @@ const CategoryManagement = () => {
                 description: '',
                 status: 'active',
                 type: type,
-                parentId: parentId || '',
+                parentId: type === 'header' ? '' : (parentId || ''),
                 order: 0
             });
             setEditingItem(null);
@@ -688,7 +702,7 @@ const CategoryManagement = () => {
                                                     setFormData({
                                                         ...formData,
                                                         name: val,
-                                                        slug: val.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '')
+                                                        slug: makeSlug(val)
                                                     });
                                                 }}
                                                 className="w-full px-4 py-2.5 bg-slate-100/50 border-none rounded-xl text-xs font-bold outline-none ring-primary/5 focus:ring-2 placeholder:text-slate-300"
@@ -715,7 +729,7 @@ const CategoryManagement = () => {
                                     {formData.type !== 'header' && (
                                         <div className="space-y-1">
                                             <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                                                Parent {formData.type === 'category' ? 'Header' : 'Department'}
+                                                Parent {formData.type === 'category' ? 'Header' : 'Department'} <span className="text-rose-500">*</span>
                                             </label>
                                             <div className="relative">
                                                 <select
@@ -727,7 +741,7 @@ const CategoryManagement = () => {
                                                     {parentUnits
                                                         .filter(unit => {
                                                             if (formData.type === 'category') return unit.type === 'header';
-                                                            if (formData.type === 'subcategory') return unit.type === 'category' || unit.type === 'header';
+                                                            if (formData.type === 'subcategory') return unit.type === 'category';
                                                             return false;
                                                         })
                                                         .map(unit => (

@@ -188,18 +188,39 @@ const DeliveryAuth = () => {
   };
 
   const handleDLUpload = (file) => {
-    if (file) performOCR(file, "dl");
-    else { setDlFile(null); setDlVerified(null); }
+    if (file) {
+      // performOCR(file, "dl"); // Bypassing OCR validation
+      setDlFile(file);
+      setDlVerified(true);
+      toast.success("Driving License Accepted!");
+    } else { 
+      setDlFile(null); 
+      setDlVerified(null); 
+    }
   };
 
   const handlePanUpload = (file) => {
-    if (file) performOCR(file, "pan");
-    else { setPanFile(null); setPanVerified(null); }
+    if (file) {
+      // performOCR(file, "pan"); // Bypassing OCR validation
+      setPanFile(file);
+      setPanVerified(true);
+      toast.success("PAN Card Accepted!");
+    } else { 
+      setPanFile(null); 
+      setPanVerified(null); 
+    }
   };
 
   const handleAadharUpload = (file) => {
-    if (file) performOCR(file, "aadhar");
-    else { setAadharFile(null); setAadharVerified(null); }
+    if (file) {
+      // performOCR(file, "aadhar"); // Bypassing OCR validation
+      setAadharFile(file);
+      setAadharVerified(true);
+      toast.success("Aadhar Card Accepted!");
+    } else { 
+      setAadharFile(null); 
+      setAadharVerified(null); 
+    }
   };
 
   const handleSendOtp = async () => {

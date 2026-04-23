@@ -23,9 +23,12 @@ import { BlurFade } from "@/components/ui/blur-fade";
 import { sellerApi } from "../services/sellerApi";
 import { toast } from "sonner";
 import { useSellerEarnings } from "../context/SellerEarningsContext";
+import { useAuth } from "@/core/context/AuthContext";
 import Pagination from "@shared/components/ui/Pagination";
 
 const Withdrawals = () => {
+    const { user } = useAuth();
+    const isVerified = user?.isVerified;
     const { earningsData: data, earningsLoading: loading, refreshEarnings } = useSellerEarnings();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [amount, setAmount] = useState('');
@@ -141,8 +144,11 @@ const Withdrawals = () => {
                         <p className="text-slate-600 text-base mt-1 font-medium">Request payouts and track your withdrawal history.</p>
                     </div>
                     <button
-                        onClick={() => setIsModalOpen(true)}
-                        className="px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl active:scale-95 flex items-center gap-2 group"
+                        onClick={() => isVerified ? setIsModalOpen(true) : toast.error("Account pending approval. You cannot request withdrawals yet.")}
+                        className={cn(
+                            "px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl active:scale-95 flex items-center gap-2 group",
+                            !isVerified && "opacity-50 cursor-not-allowed grayscale"
+                        )}
                     >
                         <ArrowUpRight className="h-4 w-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
                         New Request

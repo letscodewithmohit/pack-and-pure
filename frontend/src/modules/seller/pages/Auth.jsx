@@ -3,9 +3,25 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@core/context/AuthContext';
 import { useSettings } from '@core/context/SettingsContext';
-import { Mail, Lock, User, Phone, ArrowRight, Store, MapPin } from 'lucide-react';
+import { 
+    Mail, 
+    Lock, 
+    User, 
+    Phone, 
+    ArrowRight, 
+    Store, 
+    MapPin, 
+    FileText, 
+    Upload, 
+    CheckCircle2, 
+    ShieldCheck,
+    Building2,
+    Sparkles
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { sellerApi } from '../services/sellerApi';
+import { cn } from '@/lib/utils';
+import Badge from '@shared/components/ui/Badge';
 
 const Auth = () => {
     const [isLogin, setIsLogin] = useState(true);
@@ -13,7 +29,7 @@ const Auth = () => {
     const { login } = useAuth();
     const { settings } = useSettings();
     const navigate = useNavigate();
-    const appName = settings?.appName || 'App';
+    const appName = settings?.appName || 'Pack n Pure';
     const logoUrl = settings?.logoUrl || '';
 
     const [formData, setFormData] = useState({
@@ -22,9 +38,44 @@ const Auth = () => {
         name: '',
         shopName: '',
         phone: '',
-        city: '',
-        state: ''
+        description: '',
+        category: 'Grocery',
+        lat: '',
+        lng: '',
     });
+
+    const [isDetecting, setIsDetecting] = useState(false);
+
+    const [documents, setDocuments] = useState({
+        tradeLicense: null,
+        gstCertificate: null,
+        idProof: null
+    });
+
+    const detectLocation = () => {
+        setIsDetecting(true);
+        if ("geolocation" in navigator) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    setFormData(prev => ({
+                        ...prev,
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    }));
+                    setIsDetecting(false);
+                    toast.success("Location detected successfully!");
+                },
+                (error) => {
+                    console.error("Location Error:", error);
+                    setIsDetecting(false);
+                    toast.error("Failed to detect location. Please enter manually.");
+                }
+            );
+        } else {
+            setIsDetecting(false);
+            toast.error("Geolocation is not supported by your browser.");
+        }
+    };
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -45,8 +96,32 @@ const Auth = () => {
         }
     };
 
+    const handleFileChange = (e) => {
+        const { name, files } = e.target;
+        if (files && files[0]) {
+            setDocuments(prev => ({ ...prev, [name]: files[0] }));
+            toast.success(`${name.replace(/([A-Z])/g, ' $1')} attached`);
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
+        
+        if (!isLogin) {
+            if (!documents.tradeLicense || !documents.gstCertificate || !documents.idProof) {
+                toast.error('All SOP documents are required for registration.');
+                return;
+            }
+            if (!formData.lat || !formData.lng) {
+                toast.error('Shop location is required. Please detect or enter coordinates.');
+                return;
+            }
+            if (!formData.description) {
+                toast.error('Shop description is required.');
+                return;
+            }
+        }
+
         const pwd = (formData.password || '').trim();
         if (!/^[a-zA-Z0-9]{6}$/.test(pwd)) {
             toast.error('PIN must be exactly 6 characters.');
@@ -55,13 +130,21 @@ const Auth = () => {
 
         setIsLoading(true);
         try {
-            const response = isLogin
-                ? await sellerApi.login({ email: formData.email, password: formData.password })
-                : await sellerApi.signup({ ...formData });
+            let response;
+            if (isLogin) {
+                response = await sellerApi.login({ email: formData.email, password: formData.password });
+            } else {
+                const data = new FormData();
+                Object.keys(formData).forEach(key => data.append(key, formData[key]));
+                Object.keys(documents).forEach(key => {
+                    if (documents[key]) data.append(key, documents[key]);
+                });
+                response = await sellerApi.signup(data);
+            }
 
             const { token, seller } = response.data.result;
             login({ ...seller, token, role: 'seller' });
-            toast.success(isLogin ? 'Welcome back!' : 'Seller account created successfully');
+            toast.success(isLogin ? 'Welcome back, Partner!' : 'Application submitted successfully!');
             navigate('/seller');
         } catch (error) {
             toast.error(error.response?.data?.message || 'Authentication failed');
@@ -70,70 +153,250 @@ const Auth = () => {
         }
     };
 
-    return (
-        <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6 font-['Outfit',_sans-serif]">
-            <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="w-full max-w-4xl bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col md:flex-row"
-            >
-                <div className="w-full md:w-1/2 p-10 flex flex-col justify-center">
-                    <div className="mb-10 text-center md:text-left">
-                        <div className="flex items-center justify-center md:justify-start gap-3 mb-4">
-                            {logoUrl ? <img src={logoUrl} alt="Logo" className="w-10 h-10" /> : <Store className="text-indigo-600" size={32} />}
-                            <span className="text-2xl font-black text-gray-900 tracking-tight">{appName} Seller</span>
-                        </div>
-                        <h1 className="text-3xl font-black text-gray-900 mb-2">
-                            {isLogin ? 'Welcome Back' : 'Join Our Network'}
-                        </h1>
-                        <p className="text-gray-500 font-medium">
-                            {isLogin ? 'Manage your shop and orders efficiently.' : 'Register your business and reach more customers.'}
-                        </p>
+    const FileInput = ({ name, label }) => (
+        <label className="relative flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-200 rounded-3xl hover:bg-slate-50 hover:border-indigo-300 transition-all cursor-pointer group bg-slate-50/50">
+            <input type="file" name={name} onChange={handleFileChange} className="hidden" accept="image/*,application/pdf" />
+            {documents[name] ? (
+                <div className="flex flex-col items-center text-emerald-600 animate-in zoom-in-95 duration-300">
+                    <div className="h-10 w-10 rounded-full bg-emerald-50 flex items-center justify-center mb-1">
+                        <CheckCircle2 size={20} />
                     </div>
+                    <span className="text-[9px] font-black uppercase tracking-widest">Attached</span>
+                </div>
+            ) : (
+                <div className="flex flex-col items-center text-slate-400 group-hover:text-indigo-600 transition-colors">
+                    <Upload size={18} className="mb-1 group-hover:-translate-y-1 transition-transform" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-center px-2">{label}</span>
+                </div>
+            )}
+        </label>
+    );
 
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        {!isLogin && (
-                            <>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <input type="text" name="name" required value={formData.name} onChange={handleChange} placeholder="Owner Name" className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-600 transition-all" />
-                                    <input type="text" name="shopName" required value={formData.shopName} onChange={handleChange} placeholder="Shop Name" className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-600 transition-all" />
+    return (
+        <div className="flex min-h-screen items-center justify-center bg-[#F8FAFC] p-4 lg:p-6 font-['Outfit',_sans-serif] relative">
+            {/* Animated Background Orbs */}
+            <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-indigo-200/30 rounded-full blur-[120px] animate-pulse"></div>
+            <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-emerald-100/30 rounded-full blur-[120px] animate-pulse" style={{ animationDelay: '2s' }}></div>
+
+            <div
+                className="w-full max-w-6xl bg-white rounded-[40px] shadow-[0_32px_120px_rgba(0,0,0,0.08)] flex flex-col md:flex-row relative z-10 border border-white my-10 min-h-[600px]"
+            >
+                {/* Left Side: Form Section */}
+                <div className="w-full md:w-1/2 p-8 lg:p-16 flex flex-col bg-white relative z-20">
+                    <div className="flex-1">
+                        <div className="mb-10 text-center md:text-left">
+                            <div className="flex items-center justify-center md:justify-start gap-3 mb-6 group cursor-pointer">
+                                <div className="h-12 w-12 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200 group-hover:scale-110 transition-transform">
+                                    {logoUrl ? (
+                                        <img src={logoUrl} alt="Logo" className="w-8 h-8 object-contain" />
+                                    ) : (
+                                        <Building2 className="text-white" size={24} />
+                                    )}
                                 </div>
-                                <input type="tel" name="phone" required value={formData.phone} onChange={handleChange} placeholder="Phone Number" className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-600 transition-all" />
-                            </>
-                        )}
-                        <input type="email" name="email" required value={formData.email} onChange={handleChange} placeholder="Email Address" className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-600 transition-all" />
-                        <input type="password" name="password" required value={formData.password} onChange={handleChange} placeholder="6 Digit PIN" className="w-full px-5 py-4 bg-gray-50 border-none rounded-2xl text-sm font-bold text-gray-700 outline-none focus:ring-2 focus:ring-indigo-600 transition-all" />
+                                <div>
+                                    <span className="text-xl font-black text-slate-900 tracking-tight block leading-none">{appName}</span>
+                                    <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-[0.2em] mt-1 block">Merchant Portal</span>
+                                </div>
+                            </div>
+                            <h1 className="text-4xl font-black text-slate-900 mb-2 tracking-tight leading-tight">
+                                {isLogin ? 'Welcome Back' : 'Join Our Network'}
+                            </h1>
+                            <p className="text-slate-400 font-medium text-base">
+                                {isLogin ? 'Access your store dashboard and manage orders.' : 'Register your business to reach more customers.'}
+                            </p>
+                        </div>
 
-                        <button type="submit" disabled={isLoading} className="w-full bg-indigo-600 text-white rounded-2xl py-4 text-base font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all disabled:opacity-50 flex items-center justify-center gap-3">
-                            {isLoading ? "Please wait..." : (isLogin ? 'Login' : 'Create Account')}
-                            {!isLoading && <ArrowRight size={20} />}
+                        <form onSubmit={handleSubmit} className="space-y-6">
+                        <AnimatePresence mode="wait">
+                            {!isLogin && (
+                                <motion.div
+                                    key="signup-fields"
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: 'auto' }}
+                                    exit={{ opacity: 0, height: 0 }}
+                                    className="space-y-4 overflow-hidden"
+                                >
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500 ml-1">Owner Name</label>
+                                            <div className="relative group">
+                                                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
+                                                <input type="text" name="name" required value={formData.name} onChange={handleChange} placeholder="Your Full Name" className="w-full pl-12 pr-5 py-4 bg-slate-50 border-2 border-transparent rounded-[20px] text-sm font-bold text-slate-700 outline-none focus:bg-white focus:border-indigo-100 transition-all" />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500 ml-1">Shop Name</label>
+                                            <div className="relative group">
+                                                <Store className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
+                                                <input type="text" name="shopName" required value={formData.shopName} onChange={handleChange} placeholder="Business Name" className="w-full pl-12 pr-5 py-4 bg-slate-50 border-2 border-transparent rounded-[20px] text-sm font-bold text-slate-700 outline-none focus:bg-white focus:border-indigo-100 transition-all" />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500 ml-1">Phone Number</label>
+                                            <div className="relative group">
+                                                <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
+                                                <input type="tel" name="phone" required value={formData.phone} onChange={handleChange} placeholder="10 Digit Number" className="w-full pl-12 pr-5 py-4 bg-slate-50 border-2 border-transparent rounded-[20px] text-sm font-bold text-slate-700 outline-none focus:bg-white focus:border-indigo-100 transition-all" />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500 ml-1">Store Category</label>
+                                            <div className="relative group">
+                                                <Sparkles className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
+                                                <select name="category" required value={formData.category} onChange={handleChange} className="w-full pl-12 pr-5 py-4 bg-slate-50 border-2 border-transparent rounded-[20px] text-sm font-bold text-slate-700 outline-none focus:bg-white focus:border-indigo-100 transition-all appearance-none">
+                                                    <option value="Grocery">Grocery</option>
+                                                    <option value="Vegetables">Fruits & Vegetables</option>
+                                                    <option value="Meat">Meat & Fish</option>
+                                                    <option value="Bakery">Bakery & Snacks</option>
+                                                    <option value="Pharmacy">Pharmacy</option>
+                                                    <option value="General">General Store</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500 ml-1">Shop Description</label>
+                                        <textarea name="description" required value={formData.description} onChange={handleChange} placeholder="Describe your store and products..." className="w-full px-5 py-4 bg-slate-50 border-2 border-transparent rounded-[20px] text-sm font-bold text-slate-700 outline-none focus:bg-white focus:border-indigo-100 transition-all min-h-[100px] resize-none" />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between ml-1">
+                                            <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">Shop Location</label>
+                                            <button type="button" onClick={detectLocation} disabled={isDetecting} className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline flex items-center gap-1">
+                                                {isDetecting ? "Detecting..." : <><MapPin size={10} /> Detect My Location</>}
+                                            </button>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <input type="text" name="lat" required readOnly value={formData.lat} placeholder="Latitude" className="w-full px-5 py-3 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-500 outline-none" />
+                                            <input type="text" name="lng" required readOnly value={formData.lng} placeholder="Longitude" className="w-full px-5 py-3 bg-slate-50 border-none rounded-xl text-xs font-bold text-slate-500 outline-none" />
+                                        </div>
+                                    </div>
+
+                                    <div className="pt-2">
+                                        <label className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-3 block ml-1 flex items-center gap-2">
+                                            <FileText size={14} /> Verification Documents
+                                        </label>
+                                        <div className="grid grid-cols-3 gap-3">
+                                            <FileInput name="tradeLicense" label="Trade License" />
+                                            <FileInput name="gstCertificate" label="GST Certificate" />
+                                            <FileInput name="idProof" label="ID Proof" />
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
+                        <div className="space-y-2">
+                            <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500 ml-1">Email Address</label>
+                            <div className="relative group">
+                                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
+                                <input type="email" name="email" required value={formData.email} onChange={handleChange} placeholder="email@business.com" className="w-full pl-12 pr-5 py-4 bg-slate-50 border-2 border-transparent rounded-[20px] text-sm font-bold text-slate-700 outline-none focus:bg-white focus:border-indigo-100 transition-all" />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between ml-1">
+                                <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500">6-Digit Security PIN</label>
+                                {isLogin && <button type="button" className="text-[10px] font-bold text-indigo-500 hover:underline">Forgot PIN?</button>}
+                            </div>
+                            <div className="relative group">
+                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-indigo-600 transition-colors" size={18} />
+                                <input type="password" name="password" required value={formData.password} onChange={handleChange} placeholder="••••••" className="w-full pl-12 pr-5 py-4 bg-slate-50 border-2 border-transparent rounded-[20px] text-sm font-bold text-slate-700 outline-none focus:bg-white focus:border-indigo-100 transition-all tracking-[0.5em]" />
+                            </div>
+                        </div>
+
+                        <button type="submit" disabled={isLoading} className="w-full bg-slate-900 text-white rounded-[24px] py-5 text-base font-black shadow-2xl shadow-slate-200 hover:bg-slate-800 hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50 flex items-center justify-center gap-3 mt-6">
+                            {isLoading ? (
+                                <>
+                                    <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    <span>PROCESSING...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span>{isLogin ? 'LOG IN' : 'SUBMIT APPLICATION'}</span>
+                                    <ArrowRight size={20} />
+                                </>
+                            )}
                         </button>
                     </form>
-
-                    <div className="text-center mt-6">
-                        <button onClick={() => setIsLogin(!isLogin)} className="text-sm font-bold text-indigo-600 hover:text-indigo-800 transition-colors">
-                            {isLogin ? "New here? Create a merchant account" : "Already registered? Login instead"}
+                    <div className="text-center mt-8">
+                        <button onClick={() => setIsLogin(!isLogin)} className="text-sm font-bold text-slate-400 hover:text-indigo-600 transition-colors group">
+                            {isLogin ? (
+                                <>New merchant? <span className="text-indigo-600 group-hover:underline">Create an account</span></>
+                            ) : (
+                                <>Already registered? <span className="text-indigo-600 group-hover:underline">Log in here</span></>
+                            )}
                         </button>
                     </div>
                 </div>
+            </div>
 
-                <div className="hidden md:flex w-1/2 bg-indigo-600 p-12 text-white items-center justify-center text-center">
-                    <div className="space-y-8">
-                        <div className="inline-block p-4 bg-white/10 rounded-3xl backdrop-blur-sm border border-white/20">
-                            <MapPin size={48} className="text-white" />
+                {/* Right Side: Branding/Visual */}
+                <div className="hidden md:flex w-1/2 bg-slate-900 p-12 lg:p-20 text-white flex-col justify-between relative overflow-hidden">
+                    {/* Visual Decor */}
+                    <div className="absolute top-0 right-0 w-full h-full opacity-30">
+                        <div className="absolute top-[-10%] right-[-10%] w-[400px] h-[400px] bg-indigo-600 rounded-full blur-[100px]"></div>
+                        <div className="absolute bottom-[-10%] left-[-10%] w-[300px] h-[300px] bg-emerald-500 rounded-full blur-[100px]"></div>
+                    </div>
+
+                    <div className="relative z-10 flex justify-end">
+                         <Badge variant="outline" className="bg-white/5 border-white/10 text-white/60 text-[10px] font-bold tracking-widest px-4 py-2 rounded-full backdrop-blur-md">
+                             V2.0 STABLE
+                         </Badge>
+                    </div>
+                    
+                    <div className="space-y-12 relative z-10">
+                        <div className="inline-flex p-6 bg-white/5 rounded-[32px] backdrop-blur-2xl border border-white/10 shadow-2xl animate-bounce-slow">
+                            <Sparkles size={48} className="text-indigo-400" />
                         </div>
-                        <div className="space-y-4">
-                            <h2 className="text-4xl font-black leading-tight">Hyperlocal<br />Growth</h2>
-                            <p className="text-indigo-100 font-medium text-lg opacity-80">Join thousands of vendors delivering excellence across the city.</p>
+                        <div className="space-y-6">
+                            <h2 className="text-5xl font-black leading-tight tracking-tight">Grow Your<br /><span className="text-indigo-400">Digital Store</span></h2>
+                            <p className="text-slate-400 font-medium text-lg opacity-80 max-w-sm">Join the fastest growing quick-commerce network and deliver happiness to your neighborhood.</p>
                         </div>
-                        <div className="flex justify-center gap-2">
-                            <div className="h-2 w-8 bg-white rounded-full"></div>
-                            <div className="h-2 w-2 bg-indigo-400 rounded-full"></div>
-                            <div className="h-2 w-2 bg-indigo-400 rounded-full"></div>
+                        <div className="flex items-center gap-6">
+                             <div className="flex -space-x-3">
+                                 {[1,2,3,4].map(i => (
+                                     <div key={i} className="h-10 w-10 rounded-full border-2 border-slate-900 bg-slate-800 flex items-center justify-center text-[10px] font-bold">
+                                         {String.fromCharCode(64 + i)}
+                                     </div>
+                                 ))}
+                             </div>
+                             <p className="text-xs font-bold text-slate-500 tracking-wide uppercase">Trusted by 500+ Local Merchants</p>
                         </div>
                     </div>
+
+                    <div className="relative z-10 flex items-center gap-2">
+                        <div className="h-1 w-12 bg-indigo-500 rounded-full"></div>
+                        <div className="h-1 w-2 bg-slate-700 rounded-full"></div>
+                        <div className="h-1 w-2 bg-slate-700 rounded-full"></div>
+                    </div>
                 </div>
-            </motion.div>
+            </div>
+
+            <style dangerouslySetInnerHTML={{ __html: `
+                @keyframes bounce-slow {
+                    0%, 100% { transform: translateY(0); }
+                    50% { transform: translateY(-10px); }
+                }
+                .animate-bounce-slow {
+                    animation: bounce-slow 4s ease-in-out infinite;
+                }
+                .custom-scrollbar::-webkit-scrollbar {
+                    width: 6px;
+                }
+                .custom-scrollbar::-webkit-scrollbar-track {
+                    background: transparent;
+                }
+                .custom-scrollbar::-webkit-scrollbar-thumb {
+                    background: #E2E8F0;
+                    border-radius: 10px;
+                }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                    background: #CBD5E1;
+                }
+            `}} />
         </div>
     );
 };

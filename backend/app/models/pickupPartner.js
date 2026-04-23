@@ -51,6 +51,10 @@ const pickupPartnerSchema = new mongoose.Schema(
       select: false,
     },
     lastLogin: Date,
+    role: {
+      type: String,
+      default: "pickup_partner",
+    },
   },
   { timestamps: true },
 );

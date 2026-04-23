@@ -248,6 +248,7 @@ export const verifyPickupPartnerOtp = async (req, res) => {
         phone: partner.phone,
         vehicleType: partner.vehicleType,
         hubId: partner.hubId,
+        role: "pickup_partner",
       },
     });
   } catch (error) {

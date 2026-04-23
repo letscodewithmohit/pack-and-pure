@@ -13,7 +13,7 @@ import {
   buildSearchBarBackgroundColor,
   shiftHex,
 } from "../../utils/headerTheme";
-import LogoImage from "../../../../assets/Logo.jpeg";
+import LogoImage from "../../../../assets/packnpure.png";
 import shoppingCartAnimation from "../../../../assets/lottie/shopping-cart.json";
 
 // MUI Icons

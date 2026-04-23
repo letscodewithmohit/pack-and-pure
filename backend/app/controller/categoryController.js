@@ -1,7 +1,67 @@
 import Category from "../models/category.js";
+import mongoose from "mongoose";
 import handleResponse from "../utils/helper.js";
 import getPagination from "../utils/pagination.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
+
+const CATEGORY_TYPES = new Set(["header", "category", "subcategory"]);
+
+const normalizeParentId = (value) => {
+  if (value === "" || value === "null" || value === null || value === undefined) return null;
+  return value;
+};
+
+const validateHierarchy = async ({
+  res,
+  type,
+  parentId,
+  currentId = null,
+}) => {
+  if (!CATEGORY_TYPES.has(type)) {
+    handleResponse(res, 400, "Invalid category type");
+    return { ok: false };
+  }
+
+  if (type === "header") {
+    if (parentId) {
+      handleResponse(res, 400, "Header cannot have a parent");
+      return { ok: false };
+    }
+    return { ok: true };
+  }
+
+  if (!parentId) {
+    handleResponse(res, 400, "Parent is required for this category type");
+    return { ok: false };
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(parentId)) {
+    handleResponse(res, 400, "Invalid parent category id");
+    return { ok: false };
+  }
+
+  if (currentId && String(parentId) === String(currentId)) {
+    handleResponse(res, 400, "Category cannot be its own parent");
+    return { ok: false };
+  }
+
+  const parent = await Category.findById(parentId).select("type").lean();
+  if (!parent) {
+    handleResponse(res, 400, "Parent category not found");
+    return { ok: false };
+  }
+
+  if (type === "category" && parent.type !== "header") {
+    handleResponse(res, 400, "Category parent must be a header");
+    return { ok: false };
+  }
+  if (type === "subcategory" && parent.type !== "category") {
+    handleResponse(res, 400, "Subcategory parent must be a category");
+    return { ok: false };
+  }
+
+  return { ok: true };
+};
 
 /* ===============================
    GET ALL CATEGORIES (Hierarchy)
@@ -75,6 +135,9 @@ export const getCategories = async (req, res) => {
       categories,
     );
   } catch (error) {
+    if (error.name === "ValidationError") {
+      return handleResponse(res, 400, error.message);
+    }
     return handleResponse(res, 500, error.message);
   }
 };
@@ -86,6 +149,10 @@ export const createCategory = async (req, res) => {
   try {
     const categoryData = { ...req.body };
 
+    if (!String(categoryData.name || "").trim()) {
+      return handleResponse(res, 400, "Name is required");
+    }
+
     if (req.file) {
       categoryData.image = await uploadToCloudinary(
         req.file.buffer,
@@ -93,9 +160,18 @@ export const createCategory = async (req, res) => {
       );
     }
 
-    if (categoryData.parentId === "" || categoryData.parentId === "null" || !categoryData.parentId) {
-      categoryData.parentId = null;
+    categoryData.parentId = normalizeParentId(categoryData.parentId);
+
+    if (!categoryData.type) {
+      return handleResponse(res, 400, "Type is required");
     }
+
+    const { ok } = await validateHierarchy({
+      res,
+      type: categoryData.type,
+      parentId: categoryData.parentId,
+    });
+    if (!ok) return;
 
     if (!categoryData.slug && categoryData.name) {
       categoryData.slug = categoryData.name
@@ -118,6 +194,9 @@ export const createCategory = async (req, res) => {
     if (error.code === 11000) {
       return handleResponse(res, 400, "Slug already exists");
     }
+    if (error.name === "ValidationError") {
+      return handleResponse(res, 400, error.message);
+    }
     return handleResponse(res, 500, error.message);
   }
 };
@@ -129,6 +208,12 @@ export const updateCategory = async (req, res) => {
   try {
     const { id } = req.params;
     const categoryData = { ...req.body };
+    const hasParentId = Object.prototype.hasOwnProperty.call(req.body, "parentId");
+
+    const existing = await Category.findById(id).select("type parentId").lean();
+    if (!existing) {
+      return handleResponse(res, 404, "Category not found");
+    }
 
     if (req.file) {
       categoryData.image = await uploadToCloudinary(
@@ -137,13 +222,25 @@ export const updateCategory = async (req, res) => {
       );
     }
 
-    if (
-      categoryData.parentId === "" ||
-      categoryData.parentId === "null" ||
-      !categoryData.parentId
-    ) {
+    if (hasParentId) {
+      categoryData.parentId = normalizeParentId(categoryData.parentId);
+    }
+
+    const nextType = categoryData.type || existing.type;
+    const nextParentId = hasParentId ? categoryData.parentId : existing.parentId;
+
+    // If switching to header without explicitly sending parentId, force it to null.
+    if (nextType === "header" && !hasParentId) {
       categoryData.parentId = null;
     }
+
+    const { ok } = await validateHierarchy({
+      res,
+      type: nextType,
+      parentId: nextParentId,
+      currentId: id,
+    });
+    if (!ok) return;
 
     const updatedCategory = await Category.findByIdAndUpdate(
       id,

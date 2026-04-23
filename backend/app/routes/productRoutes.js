@@ -8,7 +8,7 @@ import {
     getProductById
 } from "../controller/productController.js";
 import { adjustStock, getStockHistory } from "../controller/stockController.js";
-import { verifyToken, allowRoles } from "../middleware/authMiddleware.js";
+import { verifyToken, allowRoles, isAccountVerified } from "../middleware/authMiddleware.js";
 import upload from "../middleware/uploadMiddleware.js";
 
 const router = express.Router();
@@ -27,6 +27,7 @@ router.post(
     "/",
     verifyToken,
     allowRoles("seller", "admin"),
+    isAccountVerified,
     upload.fields([
         { name: 'mainImage', maxCount: 1 },
         { name: 'galleryImages', maxCount: 5 }
@@ -38,6 +39,7 @@ router.put(
     "/:id",
     verifyToken,
     allowRoles("seller", "admin"),
+    isAccountVerified,
     upload.fields([
         { name: 'mainImage', maxCount: 1 },
         { name: 'galleryImages', maxCount: 5 },
@@ -50,11 +52,12 @@ router.delete(
     "/:id",
     verifyToken,
     allowRoles("seller", "admin"),
+    isAccountVerified,
     deleteProduct
 );
 
 // Stock Management
-router.post("/adjust-stock", verifyToken, allowRoles("seller"), adjustStock);
-router.get("/stock-history", verifyToken, allowRoles("seller"), getStockHistory);
+router.post("/adjust-stock", verifyToken, allowRoles("seller"), isAccountVerified, adjustStock);
+router.get("/stock-history", verifyToken, allowRoles("seller"), isAccountVerified, getStockHistory);
 
 export default router;

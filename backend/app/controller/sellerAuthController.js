@@ -1,6 +1,7 @@
 import Seller from "../models/seller.js";
 import jwt from "jsonwebtoken";
 import handleResponse from "../utils/helper.js";
+import { uploadToCloudinary } from "../utils/cloudinary.js";
 
 /* ===============================
    Utils
@@ -18,7 +19,7 @@ const generateToken = (seller) =>
 ================================ */
 export const signupSeller = async (req, res) => {
     try {
-        const { name, email, phone, password, shopName, lat, lng, radius } = req.body;
+        const { name, email, phone, password, shopName, lat, lng, radius, description, category } = req.body;
 
         if (!name || !email || !phone || !password || !shopName) {
             return handleResponse(res, 400, "All fields are required");
@@ -47,7 +48,23 @@ export const signupSeller = async (req, res) => {
             phone,
             password,
             shopName,
+            description: description || "",
+            category: category || "General",
+            documents: {}
         };
+
+        // Handle SOP Documents
+        if (req.files) {
+            if (req.files.tradeLicense && req.files.tradeLicense[0]) {
+                sellerData.documents.tradeLicense = await uploadToCloudinary(req.files.tradeLicense[0].buffer, "seller_docs");
+            }
+            if (req.files.gstCertificate && req.files.gstCertificate[0]) {
+                sellerData.documents.gstCertificate = await uploadToCloudinary(req.files.gstCertificate[0].buffer, "seller_docs");
+            }
+            if (req.files.idProof && req.files.idProof[0]) {
+                sellerData.documents.idProof = await uploadToCloudinary(req.files.idProof[0].buffer, "seller_docs");
+            }
+        }
 
         if (lat !== undefined && lng !== undefined) {
             sellerData.location = {
@@ -72,6 +89,7 @@ export const signupSeller = async (req, res) => {
         return handleResponse(res, 500, error.message);
     }
 };
+
 
 /* ===============================
    SELLER LOGIN

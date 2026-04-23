@@ -37,40 +37,64 @@ const SellerDetail = () => {
     const { showToast } = useToast();
     const [activeTab, setActiveTab] = useState('orders');
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [seller, setSeller] = useState(null);
 
-    // Mock Data for Seller
-    const [seller, setSeller] = useState({
-        id: id || 'SEL-001',
-        shopName: 'Fresh Mart Superstore',
-        ownerName: 'Rahul Sharma',
-        email: 'rahul@freshmart.com',
-        phone: '+91 98765 43210',
-        category: 'Grocery',
-        rating: 4.8,
-        status: 'active',
-        joinedDate: '12 Jan 2024',
-        location: 'Mumbai, Maharashtra',
-        image: 'https://images.unsplash.com/photo-1534723452862-4c874018d66d?auto=format&fit=crop&q=80&w=200',
-        walletBalance: 24500,
-        totalOrders: 1450,
-        totalRevenue: 540000,
-        commissionRate: '10%',
-        coords: { lat: 19.0760, lng: 72.8777 },
-        serviceRadius: 5,
-        bankInfo: {
-            bankName: 'HDFC Bank',
-            accountNo: 'XXXX XXXX 1234',
-            ifsc: 'HDFC0001234'
+    const fetchSellerData = async () => {
+        try {
+            setIsLoading(true);
+            const res = await adminApi.getSellerById(id);
+            const data = res?.data?.result;
+            if (data) {
+                setSeller({
+                    ...data,
+                    ownerName: data.name,
+                    category: data.category || 'General',
+                    status: data.isVerified ? 'active' : 'pending',
+                    joinedDate: new Date(data.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    totalOrders: data.stats?.totalOrders || 0,
+                    totalRevenue: data.stats?.totalRevenue || 0,
+                    recentOrders: data.stats?.recentOrders || [],
+                    walletBalance: data.walletBalance || 0,
+                    bankInfo: data.bankDetails || {
+                        bankName: 'Not Provided',
+                        accountNo: 'N/A',
+                        ifsc: 'N/A'
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Fetch seller detail failed:', error);
+            showToast('Failed to load seller details', 'error');
+            navigate('/admin/sellers/active');
+        } finally {
+            setIsLoading(false);
         }
-    });
-
-    const handleRefresh = () => {
-        setIsRefreshing(true);
-        setTimeout(() => {
-            setIsRefreshing(false);
-            showToast('Seller data synchronized', 'success');
-        }, 800);
     };
+
+    React.useEffect(() => {
+        fetchSellerData();
+    }, [id]);
+
+    const handleRefresh = async () => {
+        setIsRefreshing(true);
+        await fetchSellerData();
+        setIsRefreshing(false);
+        showToast('Seller data synchronized', 'success');
+    };
+
+    if (isLoading) {
+        return (
+            <div className="flex h-[60vh] items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="h-12 w-12 border-4 border-slate-200 border-t-primary rounded-full animate-spin" />
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Loading store data...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!seller) return null;
 
     return (
         <div className="ds-section-spacing animate-in fade-in slide-in-from-bottom-4 duration-700 pb-12">
@@ -192,17 +216,11 @@ const SellerDetail = () => {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-50">
-                                            {[
-                                                { id: '#ORD-9912', customer: 'Aarav Patel', status: 'delivered', amount: 850, date: 'Today, 11:30 AM' },
-                                                { id: '#ORD-9884', customer: 'Ishani Roy', status: 'processing', amount: 1240, date: 'Today, 09:15 AM' },
-                                                { id: '#ORD-9821', customer: 'Kabir Singh', status: 'delivered', amount: 450, date: 'Yesterday' },
-                                                { id: '#ORD-9750', customer: 'Priya Verma', status: 'cancelled', amount: 2100, date: 'Yesterday' },
-                                                { id: '#ORD-9690', customer: 'Rohan Mehra', status: 'delivered', amount: 150, date: '14 Feb' },
-                                            ].map((order, i) => (
-                                                <tr key={i} className="group hover:bg-slate-50/50 transition-colors cursor-pointer">
+                                            {seller.recentOrders.length > 0 ? seller.recentOrders.map((order, i) => (
+                                                <tr key={i} className="group hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => navigate(`/admin/orders/view/${order.id}`)}>
                                                     <td className="px-4 py-5">
                                                         <span className="text-xs font-black text-slate-900">{order.id}</span>
-                                                        <p className="text-[10px] font-bold text-slate-400">{order.date}</p>
+                                                        <p className="text-[10px] font-bold text-slate-400">{new Date(order.date).toLocaleDateString()}</p>
                                                     </td>
                                                     <td className="px-4 py-5">
                                                         <span className="text-xs font-bold text-slate-700">{order.customer}</span>
@@ -219,7 +237,11 @@ const SellerDetail = () => {
                                                         ₹{order.amount.toLocaleString()}
                                                     </td>
                                                 </tr>
-                                            ))}
+                                            )) : (
+                                                <tr>
+                                                    <td colSpan="4" className="px-4 py-10 text-center text-slate-400 font-bold text-xs">No orders found for this seller yet.</td>
+                                                </tr>
+                                            )}
                                         </tbody>
                                     </table>
                                 </div>

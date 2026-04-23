@@ -344,8 +344,18 @@ const OrderDetails = () => {
         );
         return;
       }
+    } else {
+      // Store Pickup (step 1-2) - Use seller coordinates
+      const loc = order?.seller?.location?.coordinates;
+      if (loc && loc.length === 2) {
+        window.open(
+          `https://www.google.com/maps/dir/?api=1&destination=${loc[1]},${loc[0]}`,
+          "_blank"
+        );
+        return;
+      }
     }
-    // Store (step 1-2) or fallback when no coordinates
+    // Fallback when no coordinates
     window.open("https://maps.google.com", "_blank");
   };
 

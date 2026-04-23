@@ -1238,20 +1238,85 @@ export const getUserById = async (req, res) => {
 ================================ */
 export const getSellers = async (req, res) => {
   try {
-    const sellers = await Seller.find({})
-      .select(
-        "_id shopName name email phone isActive isVerified serviceRadius location",
-      )
-      .sort({ shopName: 1 })
+    const { verified } = req.query;
+    let query = {};
+
+    // Fail-safe handling for verified parameter (handles string and boolean)
+    if (verified === "true" || verified === true) {
+      query.isVerified = true;
+    } else if (verified === "false" || verified === false) {
+      query.isVerified = false;
+    }
+
+    console.log("Fetching sellers with query:", query);
+
+    const sellers = await Seller.find(query)
+      .select("-password -__v") // Get everything except sensitive info
+      .sort({ createdAt: -1 })
       .lean();
+
+    console.log(`Found ${sellers.length} sellers`);
+
     return handleResponse(res, 200, "Sellers fetched", {
       items: sellers,
       total: sellers.length,
     });
   } catch (error) {
+    console.error("getSellers error:", error);
     return handleResponse(res, 500, error.message);
   }
 };
+
+/* ===============================
+   GET SELLER BY ID (Admin)
+================================ */
+export const getSellerById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+        return handleResponse(res, 400, "Invalid seller ID");
+    }
+
+    const seller = await Seller.findById(id).lean();
+
+    if (!seller) {
+      return handleResponse(res, 404, "Seller not found");
+    }
+
+    // Fetch stats for the detail view
+    const [totalOrders, totalRevenue, recentOrders] = await Promise.all([
+      Order.countDocuments({ seller: id }),
+      Order.aggregate([
+        { $match: { seller: new mongoose.Types.ObjectId(id), status: "delivered" } },
+        { $group: { _id: null, total: { $sum: "$pricing.total" } } }
+      ]),
+      Order.find({ seller: id })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .populate("customer", "name phone")
+    ]);
+
+    const stats = {
+      totalOrders,
+      totalRevenue: totalRevenue[0]?.total || 0,
+      recentOrders: recentOrders.map(o => ({
+        id: o.orderId,
+        customer: o.customer?.name || "Guest",
+        status: o.status,
+        amount: o.pricing.total,
+        date: o.createdAt
+      }))
+    };
+
+    return handleResponse(res, 200, "Seller details fetched", {
+      ...seller,
+      stats
+    });
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
 
 /* ===============================
    GET COD CUSTOMERS (Admin)
@@ -1491,3 +1556,51 @@ export const updateSellerByAdmin = async (req, res) => {
     return handleResponse(res, 500, error.message);
   }
 };
+
+/* ===============================
+   APPROVE SELLER (Admin)
+================================ */
+export const approveSeller = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const seller = await Seller.findByIdAndUpdate(
+      id,
+      { isVerified: true, isActive: true },
+      { new: true }
+    );
+
+    if (!seller) {
+      return handleResponse(res, 404, "Seller not found");
+    }
+
+    return handleResponse(res, 200, "Seller approved successfully", seller);
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+/* ===============================
+   REJECT SELLER (Admin)
+================================ */
+export const rejectSeller = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Cascade delete: Remove seller, their products, and purchase requests
+    const [seller] = await Promise.all([
+      Seller.findByIdAndDelete(id),
+      Product.deleteMany({ sellerId: id }),
+      PurchaseRequest.deleteMany({ sellerId: id })
+    ]);
+
+    if (!seller) {
+      return handleResponse(res, 404, "Seller not found");
+    }
+
+    return handleResponse(res, 200, "Application rejected and all related data removed");
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+
