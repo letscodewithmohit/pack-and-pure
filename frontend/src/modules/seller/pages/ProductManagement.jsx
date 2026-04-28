@@ -22,7 +22,9 @@ import {
   HiOutlineFolderOpen,
   HiOutlineSwatch,
   HiOutlineSquaresPlus,
+  HiOutlineLink,
 } from "react-icons/hi2";
+import axiosInstance from "@core/api/axios";
 import Modal from "@shared/components/ui/Modal";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -137,10 +139,56 @@ const ProductManagement = () => {
     tags: "",
     weight: "",
     brand: "",
+    shelfLife: "",
+    countryOfOrigin: "",
+    fssaiLicense: "",
+    customerCare: "",
+    masterProductId: "",
     mainImage: null,
     galleryImages: [],
     variants: [{ id: Date.now(), name: "Default", price: "", salePrice: "", stock: "", sku: "" }],
   });
+
+  const [masterSuggestions, setMasterSuggestions] = useState([]);
+  const [showMasterSuggestions, setShowMasterSuggestions] = useState(false);
+  const [isSearchingMaster, setIsSearchingMaster] = useState(false);
+
+  const searchMasterCatalog = async (val) => {
+    if (val.trim().length < 2) {
+      setMasterSuggestions([]);
+      setShowMasterSuggestions(false);
+      return;
+    }
+    setIsSearchingMaster(true);
+    try {
+      const res = await axiosInstance.get("/products", {
+        params: { search: val, ownerType: "admin", limit: 8 },
+      });
+      const items = res.data?.result?.items || res.data?.items || [];
+      setMasterSuggestions(items);
+      setShowMasterSuggestions(true);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSearchingMaster(false);
+    }
+  };
+
+  const handleMasterLink = (master) => {
+    setFormData((prev) => ({
+      ...prev,
+      masterProductId: master._id,
+      header: master.headerId?._id || master.headerId || prev.header,
+      category: master.categoryId?._id || master.categoryId || prev.category,
+      subcategory: master.subcategoryId?._id || master.subcategoryId || prev.subcategory,
+      shelfLife: master.shelfLife || prev.shelfLife,
+      countryOfOrigin: master.countryOfOrigin || prev.countryOfOrigin,
+      fssaiLicense: master.fssaiLicense || prev.fssaiLicense,
+      customerCare: master.customerCare || prev.customerCare,
+    }));
+    setShowMasterSuggestions(false);
+    toast.success(`Mapped to Catalog: ${master.name}`);
+  };
 
   const safeProducts = useMemo(() => (Array.isArray(products) ? products : []), [products]);
 
@@ -254,6 +302,11 @@ const ProductManagement = () => {
         weight: item.weight || "",
         unit: item.unit || "Pieces",
         brand: item.brand || "",
+        shelfLife: item.shelfLife || "",
+        countryOfOrigin: item.countryOfOrigin || "",
+        fssaiLicense: item.fssaiLicense || "",
+        customerCare: item.customerCare || "",
+        masterProductId: item.masterProductId || "",
         mainImage: item.mainImage || null,
         galleryImages: item.galleryImages || [],
         variants: (item.variants && item.variants.length > 0) ? item.variants.map(v => ({ ...v, id: v._id || Date.now() })) : [
@@ -497,6 +550,52 @@ const ProductManagement = () => {
                           <input value={formData.slug} onChange={e => setFormData({ ...formData, slug: e.target.value })} className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-primary/5" placeholder="product-slug" />
                         </div>
                       </div>
+
+                      {/* HUB-FIRST MAPPING SECTION */}
+                      <div className="p-4 bg-slate-900 rounded-2xl relative overflow-visible group">
+                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                          <HiOutlineLink className="h-16 w-16 text-white rotate-12" />
+                        </div>
+                        <div className="relative z-10 flex flex-col gap-3">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-black text-white italic tracking-tight uppercase">Hub-First Mapping</h4>
+                            {formData.masterProductId ? (
+                              <Badge variant="success" className="px-2 py-0.5 text-[8px] bg-emerald-500/20 text-emerald-400">Linked</Badge>
+                            ) : (
+                              <Badge variant="warning" className="px-2 py-0.5 text-[8px] animate-pulse">Unlinked</Badge>
+                            )}
+                          </div>
+                          <div className="relative">
+                            <div className="relative group/search">
+                              <HiOutlineMagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 group-focus-within/search:text-primary transition-all" />
+                              <input 
+                                type="text" 
+                                autoComplete="off"
+                                placeholder="Search Master Catalog..." 
+                                onChange={(e) => searchMasterCatalog(e.target.value)} 
+                                className="w-full pl-9 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white outline-none focus:ring-1 focus:ring-primary/50" 
+                              />
+                            </div>
+                            {showMasterSuggestions && masterSuggestions.length > 0 && (
+                              <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto">
+                                {masterSuggestions.map(m => (
+                                  <button key={m._id} type="button" onClick={() => handleMasterLink(m)} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800 text-left border-b border-slate-800 last:border-0">
+                                    <img src={m.mainImage} alt="" className="h-8 w-8 rounded object-cover" />
+                                    <div>
+                                      <p className="text-xs font-bold text-white">{m.name}</p>
+                                      <p className="text-[9px] text-slate-500 uppercase tracking-tighter">{m.categoryId?.name || 'Master'}</p>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          {formData.masterProductId && (
+                            <button onClick={() => setFormData({ ...formData, masterProductId: null })} className="text-[9px] font-black text-slate-500 hover:text-rose-500 uppercase self-end">Clear Mapping</button>
+                          )}
+                        </div>
+                      </div>
+
                       <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">Description</label>
                         <textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} className="w-full px-4 py-3 bg-slate-100 border-none rounded-2xl text-sm font-semibold min-h-[120px] outline-none" placeholder="Product details..." />
                       </div>

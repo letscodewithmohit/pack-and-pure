@@ -23,6 +23,7 @@ import {
   Terminal,
   Sparkles,
   User,
+  MapPin,
 } from "lucide-react";
 
 const Dashboard = React.lazy(() => import("../pages/Dashboard"));
@@ -106,6 +107,7 @@ const ShopByStoreManagement = React.lazy(
 const AdminSettings = React.lazy(() => import("../pages/AdminSettings"));
 const EnvSettings = React.lazy(() => import("../pages/EnvSettings"));
 const AdminProfile = React.lazy(() => import("../pages/AdminProfile"));
+const HubSettings = React.lazy(() => import("../pages/HubSettings"));
 
 const navItems = [
   {
@@ -231,7 +233,7 @@ const navItems = [
     ],
   },
   {
-    label: "Fees & Charges",
+    label: "Logistics & Returns",
     path: "/admin/billing",
     icon: RotateCcw,
     color: "red",
@@ -241,6 +243,12 @@ const navItems = [
     path: "/admin/settings",
     icon: Settings,
     color: "slate",
+  },
+  {
+    label: "Hub Settings",
+    path: "/admin/hub-settings",
+    icon: MapPin,
+    color: "indigo",
   },
   { label: "My Profile", path: "/admin/profile", icon: User, color: "indigo" },
   { label: "System Settings", path: "/admin/env", icon: Terminal, color: "dark" },
@@ -301,6 +309,7 @@ const AdminRoutes = () => {
         <Route path="/orders/view/:orderId" element={<OrderDetail />} />
         <Route path="/billing" element={<BillingCharges />} />
         <Route path="/settings" element={<AdminSettings />} />
+        <Route path="/hub-settings" element={<HubSettings />} />
         <Route path="/env" element={<EnvSettings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

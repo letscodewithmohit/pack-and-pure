@@ -80,6 +80,46 @@ const settingSchema = new mongoose.Schema(
             default: 3,
             min: 1,
         },
+        // Delivery Pricing Configuration
+        hubLocation: {
+            type: {
+                type: String,
+                enum: ["Point"],
+                default: "Point",
+            },
+            coordinates: {
+                type: [Number], // [lng, lat]
+                default: [75.8975, 22.7533], // Default Indore Hub
+            },
+        },
+        baseDeliveryFee: {
+            type: Number,
+            default: 20,
+        },
+        baseFreeKm: {
+            type: Number,
+            default: 1, // km covered by base fee before per-km charges start
+        },
+        perKmDeliveryCharge: {
+            type: Number,
+            default: 10,
+        },
+        freeDeliveryThreshold: {
+            type: Number,
+            default: 500,
+        },
+        platformFee: {
+            type: Number,
+            default: 3,
+        },
+        gstPercentage: {
+            type: Number,
+            default: 5, // Default 5%
+        },
+        maxServiceRadius: {
+            type: Number,
+            default: 15, // Default 15km
+        },
     },
     {
         timestamps: true,

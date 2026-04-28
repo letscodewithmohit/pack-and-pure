@@ -15,7 +15,7 @@ const STORAGE_KEY = "location_v2";
 export const LocationProvider = ({ children }) => {
   // Default location (used until we can resolve a better one)
   const [currentLocation, setCurrentLocation] = useState({
-    name: "214, Rajshri Palace Colony, Pipliyahana, Indore, Madhya Pradesh 452018, India",
+    name: "Please select your location",
     time: "12-15 mins",
     city: "Indore",
     state: "Madhya Pradesh",
@@ -168,7 +168,9 @@ export const LocationProvider = ({ children }) => {
           if (country) displayParts.push(country);
 
           const friendlyName =
-            displayParts.join(", ") || data.results[0].formatted_address;
+            displayParts.join(", ") ||
+            data.results[0]?.formatted_address ||
+            `Location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
 
           updateLocation(
             {
@@ -222,6 +224,7 @@ export const LocationProvider = ({ children }) => {
               .filter(Boolean)
               .join(", ") ||
             "",
+          location: addr.location,
           phone: profile?.phone ?? "",
           isCurrent: idx === 0,
         })),

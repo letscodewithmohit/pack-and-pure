@@ -839,7 +839,7 @@ const ProductManagement = () => {
                                                     </div>
 
                                                     {/* MASTER CATALOG MAPPING - Only for Seller Products */}
-                                                    {editingItem?.ownerType === 'seller' && (
+                                                    {(editingItem?.ownerType === 'seller' || (!editingItem && activeTab === 'seller')) && (
                                                         <div className="col-span-full p-4 bg-slate-900 rounded-3xl border border-slate-700/50 shadow-2xl relative overflow-visible group pb-2">
                                                              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                                                                 <HiOutlineLink className="h-20 w-20 text-white rotate-12" />

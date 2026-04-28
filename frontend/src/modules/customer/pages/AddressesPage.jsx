@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { customerApi } from '../services/customerApi';
 import { useLocation } from '../context/LocationContext';
+import MapPicker from '@/shared/components/MapPicker';
 
 const AddressesPage = () => {
     const navigate = useNavigate();
@@ -81,8 +82,12 @@ const AddressesPage = () => {
         landmark: '',
         city: '',
         state: '',
-        pincode: ''
+        pincode: '',
+        location: null // { lat, lng }
     });
+
+    const [isMapOpen, setIsMapOpen] = useState(false);
+    const [mapMode, setMapMode] = useState('add'); // 'add' or 'edit'
 
     const openAddModal = () => {
         setAddForm({
@@ -93,9 +98,26 @@ const AddressesPage = () => {
             landmark: '',
             city: '',
             state: '',
-            pincode: ''
+            pincode: '',
+            location: null
         });
         setIsAddOpen(true);
+    };
+
+    const handleMapConfirm = (data) => {
+        if (mapMode === 'add') {
+            setAddForm(f => ({
+                ...f,
+                address: data.address || f.address,
+                location: { lat: data.lat, lng: data.lng }
+            }));
+        } else {
+            setEditForm(f => ({
+                ...f,
+                address: data.address || f.address,
+                location: { lat: data.lat, lng: data.lng }
+            }));
+        }
     };
 
     const handleSaveNewAddress = async () => {
@@ -105,13 +127,18 @@ const AddressesPage = () => {
         const landmark = addForm.landmark?.trim();
         const state = addForm.state?.trim();
         const pincode = addForm.pincode?.trim();
+        if (!addForm.location) {
+            toast.error('Please pin your location on the map first');
+            return;
+        }
         if (!address) {
-            toast.error('Please enter the address');
+            toast.error('Please enter the address details');
             return;
         }
         const newAddr = {
             label: addForm.type.toLowerCase(),
             fullAddress: address,
+            location: addForm.location,
             ...(landmark && { landmark }),
             ...(city && { city }),
             ...(state && { state }),
@@ -144,7 +171,8 @@ const AddressesPage = () => {
         landmark: '',
         city: '',
         state: '',
-        pincode: ''
+        pincode: '',
+        location: null
     });
     const [updating, setUpdating] = useState(false);
 
@@ -158,7 +186,8 @@ const AddressesPage = () => {
             landmark: addr.landmark ?? '',
             city: addr.city ?? '',
             state: addr.state ?? '',
-            pincode: addr.pincode ?? ''
+            pincode: addr.pincode ?? '',
+            location: addr.location || null
         });
         setIsEditOpen(true);
     };
@@ -166,8 +195,12 @@ const AddressesPage = () => {
     const handleUpdateAddress = async () => {
         if (!selectedAddress) return;
         const address = editForm.address?.trim();
+        if (!editForm.location) {
+            toast.error('Please pin your location on the map');
+            return;
+        }
         if (!address) {
-            toast.error('Please enter the address');
+            toast.error('Please enter the address details');
             return;
         }
         const idx = addresses.findIndex(a => (a.id === selectedAddress.id) || (a.address === selectedAddress.address && a.type === selectedAddress.type));
@@ -179,6 +212,7 @@ const AddressesPage = () => {
             ...(rawAddresses[idx] && typeof rawAddresses[idx] === 'object' ? rawAddresses[idx] : {}),
             label: editForm.type.toLowerCase(),
             fullAddress: address,
+            location: editForm.location,
             ...(editForm.landmark?.trim() && { landmark: editForm.landmark.trim() }),
             ...(editForm.city?.trim() && { city: editForm.city.trim() }),
             ...(editForm.state?.trim() && { state: editForm.state.trim() }),
@@ -332,6 +366,28 @@ const AddressesPage = () => {
                                 <Button type="button" variant="outline" className={`flex-1 ${addForm.type === 'other' ? 'border-[#0c831f] text-[#0c831f] bg-green-50' : ''}`} onClick={() => setAddForm(f => ({ ...f, type: 'other' }))}>Other</Button>
                             </div>
                         </div>
+
+                        <div className="grid gap-2">
+                            <Label>Pin Location</Label>
+                            <Button 
+                                type="button" 
+                                variant="outline" 
+                                className={`w-full flex items-center gap-2 h-12 border-dashed ${addForm.location ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'border-slate-300'}`}
+                                onClick={() => {
+                                    setMapMode('add');
+                                    setIsMapOpen(true);
+                                }}
+                            >
+                                <MapPin size={18} className={addForm.location ? 'fill-emerald-500' : ''} />
+                                {addForm.location ? 'Location Pinned ✅' : 'Select on Map (Required)'}
+                            </Button>
+                            {addForm.location && (
+                                <p className="text-[10px] text-emerald-600 font-bold px-1">
+                                    Coords: {addForm.location.lat.toFixed(4)}, {addForm.location.lng.toFixed(4)}
+                                </p>
+                            )}
+                        </div>
+
                         <div className="grid gap-2">
                             <Label htmlFor="name">Full Name</Label>
                             <Input id="name" placeholder="John Doe" value={addForm.name} onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))} />
@@ -393,6 +449,28 @@ const AddressesPage = () => {
                                 <Button type="button" variant="outline" className={`flex-1 ${editForm.type === 'other' ? 'border-[#0c831f] text-[#0c831f] bg-green-50' : ''}`} onClick={() => setEditForm(f => ({ ...f, type: 'other' }))}>Other</Button>
                             </div>
                         </div>
+
+                        <div className="grid gap-2">
+                            <Label>Pin Location</Label>
+                            <Button 
+                                type="button" 
+                                variant="outline" 
+                                className={`w-full flex items-center gap-2 h-12 border-dashed ${editForm.location ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'border-slate-300'}`}
+                                onClick={() => {
+                                    setMapMode('edit');
+                                    setIsMapOpen(true);
+                                }}
+                            >
+                                <MapPin size={18} className={editForm.location ? 'fill-emerald-500' : ''} />
+                                {editForm.location ? 'Location Pinned ✅' : 'Select on Map (Required)'}
+                            </Button>
+                            {editForm.location && (
+                                <p className="text-[10px] text-emerald-600 font-bold px-1">
+                                    Coords: {editForm.location.lat.toFixed(4)}, {editForm.location.lng.toFixed(4)}
+                                </p>
+                            )}
+                        </div>
+
                         <div className="grid gap-2">
                             <Label htmlFor="edit-name">Full Name</Label>
                             <Input id="edit-name" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
@@ -461,6 +539,15 @@ const AddressesPage = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <MapPicker 
+                isOpen={isMapOpen}
+                onClose={() => setIsMapOpen(false)}
+                onConfirm={handleMapConfirm}
+                initialLocation={mapMode === 'add' ? addForm.location : editForm.location}
+                showRadius={false}
+                title="Select Delivery Location"
+            />
         </div>
     );
 };

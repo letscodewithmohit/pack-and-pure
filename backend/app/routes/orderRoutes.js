@@ -16,6 +16,7 @@ import {
   rejectReturnRequest,
   assignReturnDelivery,
   updateReturnStatus,
+  getDeliveryFee,
 } from "../controller/orderController.js";
 import {
   confirmPickup,
@@ -38,6 +39,7 @@ router.get("/details/:orderId", verifyToken, getOrderDetails);
 router.put("/cancel/:orderId", verifyToken, cancelOrder);
 router.post("/:orderId/returns", verifyToken, requestReturn);
 router.get("/:orderId/returns", verifyToken, getReturnDetails);
+router.get("/calculate-delivery-fee", verifyToken, getDeliveryFee);
 
 // Admin/Seller routes (might need different auth middleware for role checks)
 

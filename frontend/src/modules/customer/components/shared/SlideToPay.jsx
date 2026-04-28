@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, useAnimation, useMotionValue, useTransform } from 'framer-motion';
 import { ChevronRight, Check, ChevronsRight } from 'lucide-react';
+import { cn } from "@/lib/utils";
 
 const SlideToPay = ({
     onSuccess,
@@ -63,40 +64,60 @@ const SlideToPay = ({
 
     return (
         <div
-            className="relative h-16 w-full rounded-full overflow-hidden select-none touch-none bg-linear-to-r from-[#0c831f] via-[#16a34a] to-[#0c831f] shadow-[0_18px_45px_rgba(4,120,87,0.35)] border border-white/10"
+            className={cn(
+                "relative h-16 w-full rounded-full overflow-hidden select-none touch-none shadow-[0_18px_45px_rgba(4,120,87,0.35)] border border-white/10 transition-all duration-300",
+                disabled 
+                    ? "bg-slate-200 shadow-none border-slate-300 opacity-60 grayscale cursor-not-allowed" 
+                    : "bg-linear-to-r from-[#0c831f] via-[#16a34a] to-[#0c831f]"
+            )}
             ref={(el) => el && setContainerWidth(el.offsetWidth)}
         >
             {/* Progress Fill */}
-            <motion.div
-                className="absolute inset-y-0 left-0 bg-white/15"
-                style={{ width: fillWidth }}
-            />
+            {!disabled && (
+                <motion.div
+                    className="absolute inset-y-0 left-0 bg-white/15"
+                    style={{ width: fillWidth }}
+                />
+            )}
 
             {/* Shimmer Effect Background (continuous sweep) */}
-            <motion.div
-                className="absolute inset-0 overflow-hidden pointer-events-none"
-                style={{ opacity: shimmerOpacity }}
-            >
+            {!disabled && (
                 <motion.div
-                    className="absolute inset-y-0 -inset-x-1 bg-linear-to-r from-transparent via-white/35 to-transparent skew-x-[-20deg]"
-                    initial={{ x: "-100%" }}
-                    animate={{ x: "100%" }}
-                    transition={{ duration: 1.6, repeat: Infinity, ease: "linear" }}
-                />
-            </motion.div>
+                    className="absolute inset-0 overflow-hidden pointer-events-none"
+                    style={{ opacity: shimmerOpacity }}
+                >
+                    <motion.div
+                        className="absolute inset-y-0 -inset-x-1 bg-linear-to-r from-transparent via-white/35 to-transparent skew-x-[-20deg]"
+                        initial={{ x: "-100%" }}
+                        animate={{ x: "100%" }}
+                        transition={{ duration: 1.6, repeat: Infinity, ease: "linear" }}
+                    />
+                </motion.div>
+            )}
 
             {/* Text Label */}
             <motion.div
                 className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none"
-                style={{ opacity: textOpacity }}
+                style={{ opacity: disabled ? 1 : textOpacity }}
             >
-                <span className="text-white font-black text-sm md:text-[13px] tracking-[0.25em] uppercase flex items-center gap-2">
-                    {text} <span className="text-white/40">|</span> <span className="text-emerald-50 font-extrabold">₹{amount}</span>
+                <span className={cn(
+                    "font-black text-sm md:text-[13px] tracking-[0.25em] uppercase flex items-center gap-2",
+                    disabled ? "text-slate-500" : "text-white"
+                )}>
+                    {disabled ? "Action Unavailable" : text} 
+                    {!disabled && (
+                        <>
+                            <span className="text-white/40">|</span> 
+                            <span className="text-emerald-50 font-extrabold">₹{amount}</span>
+                        </>
+                    )}
                 </span>
 
-                <div className="absolute right-4 animate-pulse text-white/70">
-                    <ChevronsRight size={20} />
-                </div>
+                {!disabled && (
+                    <div className="absolute right-4 animate-pulse text-white/70">
+                        <ChevronsRight size={20} />
+                    </div>
+                )}
             </motion.div>
 
             {/* Success State Text */}
@@ -112,35 +133,42 @@ const SlideToPay = ({
 
             {/* Draggable Circle */}
             <motion.div
-                className="absolute left-1 top-1 bottom-1 w-14 h-14 bg-white rounded-full flex items-center justify-center cursor-grab active:cursor-grabbing z-20 shadow-[0_6px_18px_rgba(15,118,110,0.35)] border border-emerald-100"
-                drag={!isCompleted && !isLoading ? "x" : false}
+                className={cn(
+                    "absolute left-1 top-1 bottom-1 w-14 h-14 rounded-full flex items-center justify-center z-20 border",
+                    disabled 
+                        ? "bg-slate-300 border-slate-400 cursor-not-allowed" 
+                        : "bg-white cursor-grab active:cursor-grabbing shadow-[0_6px_18px_rgba(15,118,110,0.35)] border-emerald-100"
+                )}
+                drag={!isCompleted && !isLoading && !disabled ? "x" : false}
                 dragConstraints={{ left: 0, right: maxDrag }}
                 dragElastic={0.05}
                 dragMomentum={false}
                 onDragEnd={handleDragEnd}
                 animate={controls}
                 style={{ x }}
-                whileTap={{ scale: 0.95 }}
-                whileHover={{ scale: 1.05 }}
+                whileTap={!disabled ? { scale: 0.95 } : {}}
+                whileHover={!disabled ? { scale: 1.05 } : {}}
             >
                 {isLoading || isCompleted ? (
                     <motion.div
-                        className="h-6 w-6 border-2 border-white border-t-transparent rounded-full animate-spin"
+                        className="h-6 w-6 border-2 border-slate-300 border-t-emerald-600 rounded-full animate-spin"
                     />
                 ) : (
                     <motion.div
                         className="relative w-full h-full flex items-center justify-center"
                         style={{ rotate }}
                     >
-                        <motion.div className="text-[#0c831f]" style={{ opacity: arrowsOpacity }}>
+                        <motion.div className={disabled ? "text-slate-400" : "text-[#0c831f]"} style={{ opacity: arrowsOpacity }}>
                             <ChevronRight size={28} strokeWidth={3} />
                         </motion.div>
-                        <motion.div
-                            className="absolute inset-0 flex items-center justify-center text-[#0c831f]"
-                            style={{ opacity: checkOpacity }}
-                        >
-                            <Check size={24} strokeWidth={3} />
-                        </motion.div>
+                        {!disabled && (
+                            <motion.div
+                                className="absolute inset-0 flex items-center justify-center text-[#0c831f]"
+                                style={{ opacity: checkOpacity }}
+                            >
+                                <Check size={24} strokeWidth={3} />
+                            </motion.div>
+                        )}
                     </motion.div>
                 )}
             </motion.div>

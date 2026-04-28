@@ -31,6 +31,7 @@ import {
 } from "../services/hubOrderOrchestrator.js";
 import { emitToAdminOrdersRoom, emitToSeller } from "../services/orderSocketEmitter.js";
 import { distanceMeters } from "../utils/geoUtils.js";
+import { calculateDeliveryFee } from "../utils/deliveryFeeUtil.js";
 import {
   orderMatchQueryFromRouteParam,
   orderMatchQueryFlexible,
@@ -41,6 +42,19 @@ import {
 /* ===============================
    PLACE ORDER
 ================================ */
+export const getDeliveryFee = async (req, res) => {
+  try {
+    const { lat, lng } = req.query;
+    if (!lat || !lng) {
+      return handleResponse(res, 400, "Coordinates required");
+    }
+    const pricing = await calculateDeliveryFee({ lat: Number(lat), lng: Number(lng) });
+    return handleResponse(res, 200, "Delivery fee calculated", pricing);
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
 export const placeOrder = async (req, res) => {
   try {
     const customerId = req.user.id;
@@ -163,6 +177,38 @@ export const placeOrder = async (req, res) => {
       Date.now() + Math.max(1, defaultSlaHours) * 60 * 60 * 1000,
     );
 
+    // Validate Pricing (Tamper prevention)
+    let validatedPricing = { ...pricing };
+    if (normalizedAddress?.location) {
+      const calc = await calculateDeliveryFee(normalizedAddress.location);
+      
+      if (calc.isOutOfRange) {
+        return handleResponse(res, 400, `Address is outside our delivery range (${calc.maxServiceRadius}km)`);
+      }
+
+      // Distance-based delivery fee
+      validatedPricing.deliveryFee = calc.deliveryFee;
+      validatedPricing.distanceKm = calc.distanceKm;
+      validatedPricing.platformFee = calc.platformFee;
+
+      // Free delivery: if subtotal >= threshold, waive the delivery fee
+      if ((validatedPricing.subtotal || 0) >= calc.freeDeliveryThreshold) {
+        validatedPricing.deliveryFee = 0;
+      }
+
+      // GST on (Subtotal - Discount + Delivery + Platform)
+      const taxableAmount = (validatedPricing.subtotal || 0) - (validatedPricing.discount || 0) + validatedPricing.deliveryFee + validatedPricing.platformFee;
+      validatedPricing.gst = Math.round(taxableAmount * (calc.gstPercentage / 100));
+
+      // Final Total Recalculation
+      validatedPricing.total = (validatedPricing.subtotal || 0) 
+        - (validatedPricing.discount || 0)
+        + validatedPricing.deliveryFee 
+        + validatedPricing.platformFee
+        + validatedPricing.gst 
+        + (validatedPricing.tip || 0);
+    }
+
     let newOrder = null;
     let hubMeta = null;
 
@@ -181,7 +227,7 @@ export const placeOrder = async (req, res) => {
         ...payment,
         method: paymentMethod,
       },
-      pricing,
+      pricing: validatedPricing,
       timeSlot: timeSlot || "now",
       status: "pending",
       workflowVersion: 2,
@@ -1013,7 +1059,7 @@ export const updateOrderStatus = async (req, res) => {
 
       // Create Delivery Earning Transaction
       if (order.deliveryBoy) {
-        const deliveryEarning = Math.round((order.pricing?.total || 0) * 0.1); // 10% for demo
+        const deliveryEarning = order.pricing?.deliveryFee || 0;
         await Transaction.create({
           user: order.deliveryBoy,
           userModel: "Delivery",
@@ -1569,6 +1615,9 @@ export const getAvailableOrders = async (req, res) => {
       );
     }
 
+    const settings = await Setting.findOne().lean();
+    const hubAddress = settings?.address || "Main Logistics Hub";
+
     // 1. Get delivery boy's location
     const deliveryPartner = await Delivery.findById(userId);
     if (
@@ -1662,6 +1711,12 @@ export const getAvailableOrders = async (req, res) => {
     for (const o of [...v2Filtered, ...legacyOrders]) {
       if (seen.has(o.orderId)) continue;
       seen.add(o.orderId);
+      
+      // Inject Hub Address for UI if hub flow
+      if (o.hubFlowEnabled) {
+        o.pickupAddress = hubAddress;
+      }
+      
       merged.push(o);
       if (merged.length >= limit) break;
     }

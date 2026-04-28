@@ -64,6 +64,8 @@ export const customerApi = {
     axiosInstance.get(
       `/orders/details/${encodeURIComponent(String(orderId ?? "").trim())}`,
     ),
+  getDeliveryFee: (lat, lng) =>
+    axiosInstance.get("/orders/calculate-delivery-fee", { params: { lat, lng } }),
   getOrderRoute: (orderId, params) =>
     axiosInstance.get(`/orders/workflow/${orderId}/route`, { params }),
   cancelOrder: (orderId, data) =>

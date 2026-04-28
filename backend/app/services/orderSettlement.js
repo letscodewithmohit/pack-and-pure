@@ -10,7 +10,7 @@ export async function applyDeliveredSettlement(order, orderIdString) {
   );
 
   if (order.deliveryBoy) {
-    const deliveryEarning = Math.round((order.pricing?.total || 0) * 0.1);
+    const deliveryEarning = order.pricing?.deliveryFee || 0;
     await Transaction.create({
       user: order.deliveryBoy,
       userModel: "Delivery",

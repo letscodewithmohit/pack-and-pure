@@ -28,8 +28,10 @@ import {
   X,
   Clipboard,
   Check,
+  AlertCircle,
   Contact2,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@shared/components/ui/Toast";
@@ -78,7 +80,7 @@ const CheckoutPage = () => {
   }, [isAuthenticated, isFullDataFetched, fetchFullWishlist]);
 
   const appName = settings?.appName || "App";
-  const { savedAddresses: locationSavedAddresses, currentLocation } =
+  const { savedAddresses: locationSavedAddresses, currentLocation, refreshLocation, isFetchingLocation: isLocationFetching } =
     useAppLocation();
   const navigate = useNavigate();
 
@@ -96,20 +98,92 @@ const CheckoutPage = () => {
   const postOrderNavigateRef = useRef(null);
   const [currentAddress, setCurrentAddress] = useState({
     type: "Home",
-    name: "Harshvardhan Panchal",
-    address: "81 Pipliyahana Road, Near 214",
+    name: user?.name || "",
+    address: "",
     landmark: "",
-    city: "Indore - 452018",
-    phone: "6268423925",
+    city: "",
+    phone: user?.phone || "",
+    location: null,
   });
+  const [deliveryFee, setDeliveryFee] = useState(20); // actual fee shown (0 when free)
+  const [rawDeliveryFee, setRawDeliveryFee] = useState(20); // distance-based fee before threshold
+  const [freeDeliveryThreshold, setFreeDeliveryThreshold] = useState(500);
+  const [distanceKm, setDistanceKm] = useState(0);
+  const [platformFee, setPlatformFee] = useState(3);
+  const [gstPercentage, setGstPercentage] = useState(5);
+  const [isOutOfRange, setIsOutOfRange] = useState(false);
+  const [isCalculatingFee, setIsCalculatingFee] = useState(false);
+
+  // Dynamic delivery time calculation: 8m base + 3m per KM
+  const deliveryTimeBase = 8 + Math.round(distanceKm * 3);
+  const deliveryTimeRange = `${deliveryTimeBase}-${deliveryTimeBase + 5}`;
+
+  const fetchDeliveryFee = async (location) => {
+    if (!location?.lat || !location?.lng) return;
+    setIsCalculatingFee(true);
+    try {
+      const { data } = await customerApi.getDeliveryFee(location.lat, location.lng);
+      const res = data.result;
+      setDistanceKm(res.distanceKm || 0);
+      setPlatformFee(res.platformFee ?? 3);
+      setGstPercentage(res.gstPercentage ?? 5);
+      setIsOutOfRange(res.isOutOfRange || false);
+      setFreeDeliveryThreshold(res.freeDeliveryThreshold ?? 500);
+      setRawDeliveryFee(res.deliveryFee ?? 20);
+    } catch (error) {
+      console.error("Failed to fetch delivery fee:", error);
+      // Keep existing base fee fallback on failure
+    } finally {
+      setIsCalculatingFee(false);
+    }
+  };
+
+  // Free delivery: if cart total >= threshold, delivery is free
+  useEffect(() => {
+    if (cartTotal >= freeDeliveryThreshold) {
+      setDeliveryFee(0);
+    } else {
+      setDeliveryFee(rawDeliveryFee);
+    }
+  }, [cartTotal, freeDeliveryThreshold, rawDeliveryFee]);
+  // Trigger fee calculation when address or GPS changes
+  useEffect(() => {
+    const loc = currentAddress.location || (currentLocation?.latitude ? { lat: currentLocation.latitude, lng: currentLocation.longitude } : null);
+    if (loc) {
+      fetchDeliveryFee(loc);
+    }
+  }, [currentAddress.location, currentLocation]);
+
+  // Sync currentAddress with the first saved address when they load
+  useEffect(() => {
+    if (locationSavedAddresses.length > 0 && !currentAddress.address) {
+      const addr = locationSavedAddresses[0];
+      setCurrentAddress({
+        type: addr.label || "Home",
+        name: user?.name || addr.name || "Customer",
+        address: addr.address || "",
+        landmark: addr.landmark || "",
+        city: addr.city || "",
+        phone: user?.phone || addr.phone || "",
+        location: addr.location || null,
+      });
+    }
+  }, [locationSavedAddresses, user]);
+
+  // Auto-refresh real GPS on mount for accurate distance calculation
+  // Works silently if permission already granted; user can also tap the refresh button
+  useEffect(() => {
+    refreshLocation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [isEditAddressOpen, setIsEditAddressOpen] = useState(false);
   const [editAddressForm, setEditAddressForm] = useState({
     type: "Home",
-    name: "Harshvardhan Panchal",
-    address: "81 Pipliyahana Road, Near 214",
+    name: user?.name || "",
+    address: "",
     landmark: "",
-    city: "Indore - 452018",
-    phone: "6268423925",
+    city: "",
+    phone: user?.phone || "",
   });
   const [showRecipientForm, setShowRecipientForm] = useState(false);
   const [recipientData, setRecipientData] = useState({
@@ -187,12 +261,17 @@ const CheckoutPage = () => {
     { value: 30, label: "₹30" },
   ];
 
-  const deliveryFee = 0;
-  const platformFee = 3;
-  const gst = Math.round(cartTotal * 0.05);
+  // const deliveryFee = 0; // Now handled by state
+  // const platformFee = 3; // Now handled by state
+
   const discountAmount = selectedCoupon
     ? selectedCoupon.discountAmount || selectedCoupon.discount || 0
     : 0;
+
+  // GST calculation based on dynamic percentage
+  const taxableAmount = cartTotal - discountAmount + deliveryFee + platformFee;
+  const gst = Math.round(taxableAmount * (gstPercentage / 100));
+
   const totalAmount =
     cartTotal - discountAmount + deliveryFee + platformFee + gst + selectedTip;
 
@@ -201,12 +280,14 @@ const CheckoutPage = () => {
   const RECIPIENT_STORAGE_KEY = "appzeto_checkout_recipient_v1";
 
   // Derived display values for primary delivery card
-  const displayName = savedRecipient?.name || currentAddress.name;
+  const displayName = savedRecipient?.name || currentAddress.name || user?.name || "Select Address";
   const displayPhone =
-    savedRecipient?.phone || currentAddress.phone || "6268423925";
+    savedRecipient?.phone || currentAddress.phone || user?.phone || "";
   const displayAddress = savedRecipient
     ? `${savedRecipient.completeAddress}${savedRecipient.landmark ? `, ${savedRecipient.landmark}` : ""}${savedRecipient.pincode ? ` - ${savedRecipient.pincode}` : ""}`
-    : `${currentAddress.address}${currentAddress.landmark ? `, ${currentAddress.landmark}` : ""}, ${currentAddress.city}`;
+    : currentAddress.address 
+      ? `${currentAddress.address}${currentAddress.landmark ? `, ${currentAddress.landmark}` : ""}${currentAddress.city ? `, ${currentAddress.city}` : ""}`
+      : "Please select or add a delivery address";
 
   const handleSaveRecipient = () => {
     if (
@@ -348,22 +429,22 @@ const CheckoutPage = () => {
       // but let's pass it for consistency with frontend logic.
       const addressForOrder = savedRecipient
         ? {
-            type: "Other",
-            name: savedRecipient.name,
-            address: savedRecipient.completeAddress,
-            landmark: savedRecipient.landmark || "",
-            city: savedRecipient.pincode ? `${savedRecipient.pincode}` : "",
-            phone: savedRecipient.phone,
-            location: currentLocation?.latitude && currentLocation?.longitude 
-              ? { lat: currentLocation.latitude, lng: currentLocation.longitude }
-              : undefined,
-          }
+          type: "Other",
+          name: savedRecipient.name,
+          address: savedRecipient.completeAddress,
+          landmark: savedRecipient.landmark || "",
+          city: savedRecipient.pincode ? `${savedRecipient.pincode}` : "",
+          phone: savedRecipient.phone,
+          location: currentLocation?.latitude && currentLocation?.longitude
+            ? { lat: currentLocation.latitude, lng: currentLocation.longitude }
+            : undefined,
+        }
         : {
-            ...currentAddress,
-            location: currentLocation?.latitude && currentLocation?.longitude 
-              ? { lat: currentLocation.latitude, lng: currentLocation.longitude }
-              : undefined,
-          };
+          ...currentAddress,
+          location: currentLocation?.latitude && currentLocation?.longitude
+            ? { lat: currentLocation.latitude, lng: currentLocation.longitude }
+            : undefined,
+        };
 
       const orderData = {
         address: addressForOrder,
@@ -417,7 +498,7 @@ const CheckoutPage = () => {
       console.error("Failed to place order:", error);
       showToast(
         error.response?.data?.message ||
-          "Failed to place order. Please try again.",
+        "Failed to place order. Please try again.",
         "error",
       );
     } finally {
@@ -459,7 +540,7 @@ const CheckoutPage = () => {
         .then((r) => {
           if (r.data?.result) applyCancelled(r.data.result);
         })
-        .catch(() => {});
+        .catch(() => { });
     };
 
     const off = onOrderStatusUpdate(getToken, tick);
@@ -621,7 +702,7 @@ const CheckoutPage = () => {
                 </div>
                 <div>
                   <h3 className="font-black text-slate-800 text-lg">
-                    Delivery in 12-15 mins
+                    Delivery in {deliveryTimeRange} mins
                   </h3>
                   <p className="text-sm text-slate-500">
                     Shipment of {cartCount} items
@@ -837,8 +918,8 @@ const CheckoutPage = () => {
                     const lsRaw =
                       typeof window !== "undefined"
                         ? window.localStorage.getItem(
-                            "appzeto_customer_location_v2",
-                          )
+                          "appzeto_customer_location_v2",
+                        )
                         : null;
                     const parsed = lsRaw ? JSON.parse(lsRaw) : null;
                     const nameFromCache = parsed?.name || currentLocation?.name;
@@ -1001,11 +1082,10 @@ const CheckoutPage = () => {
                     </div>
                     <button
                       onClick={() => handleApplyCoupon(coupon)}
-                      className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors ${
-                        selectedCoupon?.code === coupon.code
+                      className={`px-4 py-2 text-xs font-bold rounded-lg transition-colors ${selectedCoupon?.code === coupon.code
                           ? "bg-slate-200 text-slate-500 cursor-not-allowed"
                           : "bg-[#0c831f] text-white hover:bg-[#0b721b]"
-                      }`}
+                        }`}
                       disabled={selectedCoupon?.code === coupon.code}>
                       {selectedCoupon?.code === coupon.code
                         ? "Applied"
@@ -1032,11 +1112,10 @@ const CheckoutPage = () => {
                   <button
                     key={tip.value}
                     onClick={() => setSelectedTip(tip.value)}
-                    className={`py-2 rounded-xl border-2 transition-all font-bold text-sm ${
-                      selectedTip === tip.value
+                    className={`py-2 rounded-xl border-2 transition-all font-bold text-sm ${selectedTip === tip.value
                         ? "border-pink-500 bg-pink-100 text-pink-700"
                         : "border-pink-200 bg-white text-slate-700 hover:border-pink-300"
-                    }`}>
+                      }`}>
                     {tip.label}
                   </button>
                 ))}
@@ -1053,17 +1132,15 @@ const CheckoutPage = () => {
                     <button
                       key={method.id}
                       onClick={() => setSelectedPayment(method.id)}
-                      className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${
-                        selectedPayment === method.id
+                      className={`w-full p-3 rounded-xl border-2 transition-all flex items-center gap-3 ${selectedPayment === method.id
                           ? "border-[#0c831f] bg-green-50"
                           : "border-slate-200 bg-white hover:border-slate-300"
-                      }`}>
+                        }`}>
                       <div
-                        className={`h-10 w-10 rounded-full flex items-center justify-center ${
-                          selectedPayment === method.id
+                        className={`h-10 w-10 rounded-full flex items-center justify-center ${selectedPayment === method.id
                             ? "bg-green-100"
                             : "bg-slate-100"
-                        }`}>
+                          }`}>
                         <Icon
                           size={18}
                           className={
@@ -1083,11 +1160,10 @@ const CheckoutPage = () => {
                         </p>
                       </div>
                       <div
-                        className={`h-5 w-5 rounded-full border-2 flex items-center justify-center ${
-                          selectedPayment === method.id
+                        className={`h-5 w-5 rounded-full border-2 flex items-center justify-center ${selectedPayment === method.id
                             ? "border-[#0c831f]"
                             : "border-slate-300"
-                        }`}>
+                          }`}>
                         {selectedPayment === method.id && (
                           <div className="h-3 w-3 rounded-full bg-[#0c831f]" />
                         )}
@@ -1109,6 +1185,18 @@ const CheckoutPage = () => {
                 </h3>
               </div>
 
+              {isOutOfRange && (
+                <div className="mx-8 mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex gap-3 animate-pulse">
+                  <AlertCircle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="text-xs font-black text-rose-900 uppercase">Out of Delivery Range</p>
+                    <p className="text-[10px] font-bold text-rose-600 leading-relaxed italic">
+                      Sorry! This location is beyond our current service radius. Please select a closer address.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-4">
                 <div className="flex justify-between items-center px-2">
                   <span className="text-slate-500 font-bold text-[13px] uppercase tracking-wider">
@@ -1118,18 +1206,56 @@ const CheckoutPage = () => {
                     ₹{cartTotal}
                   </span>
                 </div>
-                <div className="flex justify-between items-center px-2">
-                  <span className="text-slate-500 font-bold text-[13px] uppercase tracking-wider">
-                    Delivery Fee
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-400 line-through text-xs">
-                      ₹40
-                    </span>
-                    <span className="font-black text-[#0c831f] text-[13px] bg-green-50 px-2 py-1 rounded-lg">
-                      FREE
-                    </span>
+                <div className="flex flex-col gap-1.5 px-2">
+                  <div className="flex justify-between items-center">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-slate-500 font-bold text-[13px] uppercase tracking-wider">
+                        Delivery Fee
+                      </span>
+                      <button
+                        onClick={refreshLocation}
+                        disabled={isCalculatingFee || isLocationFetching}
+                        className="flex items-center gap-1 text-[10px] text-emerald-600 font-bold hover:text-emerald-700 transition-colors disabled:opacity-50 w-fit"
+                      >
+                        {(isCalculatingFee || isLocationFetching) ? (
+                          <div className="h-2.5 w-2.5 border border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <MapPin size={10} />
+                        )}
+                        {distanceKm > 0 ? `📍 ${distanceKm} km · ` : ''}{isLocationFetching || isCalculatingFee ? 'Calculating...' : 'Refresh location'}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {deliveryFee === 0 ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[12px] font-bold text-slate-400 line-through">₹{rawDeliveryFee}</span>
+                          <span className="font-black text-emerald-600 text-sm">FREE 🎉</span>
+                        </div>
+                      ) : (
+                        <span className="font-black text-slate-800">
+                          {isCalculatingFee || isLocationFetching ? <span className="text-slate-400">...</span> : `₹${deliveryFee}`}
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  {deliveryFee > 0 && freeDeliveryThreshold > 0 && cartTotal < freeDeliveryThreshold && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-emerald-700 font-bold">
+                          🎁 Add ₹{freeDeliveryThreshold - cartTotal} more for FREE delivery!
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          ₹{cartTotal} / ₹{freeDeliveryThreshold}
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="bg-gradient-to-r from-emerald-400 to-emerald-600 h-1.5 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.min((cartTotal / freeDeliveryThreshold) * 100, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-between items-center px-2">
                   <span className="text-slate-500 font-bold text-[13px] uppercase tracking-wider">
@@ -1199,6 +1325,7 @@ const CheckoutPage = () => {
                       amount={totalAmount}
                       onSuccess={handlePlaceOrder}
                       isLoading={isPlacingOrder}
+                      disabled={isOutOfRange}
                       text="Order Now"
                     />
                     <p className="text-center text-[10px] text-slate-400 font-bold mt-4 uppercase tracking-[0.1em]">
@@ -1219,6 +1346,7 @@ const CheckoutPage = () => {
             amount={totalAmount}
             onSuccess={handlePlaceOrder}
             isLoading={isPlacingOrder}
+            disabled={isOutOfRange}
             text="Slide to Pay"
           />
         </div>
@@ -1245,14 +1373,14 @@ const CheckoutPage = () => {
                     city: "", // already part of addr.address string
                     phone: addr.phone || currentAddress.phone,
                     landmark: "", // already baked into addr.address if present
+                    location: addr.location,
                   });
                   setIsAddressModalOpen(false);
                 }}
-                className={`w-full p-4 rounded-2xl border-2 text-left transition-all ${
-                  currentAddress.id === addr.id
+                className={`w-full p-4 rounded-2xl border-2 text-left transition-all ${currentAddress.id === addr.id
                     ? "border-[#0c831f] bg-green-50 shadow-sm"
                     : "border-slate-100 bg-white hover:border-slate-200"
-                }`}>
+                  }`}>
                 <div className="flex items-center gap-3 mb-2">
                   <div
                     className={`p-2 rounded-full ${currentAddress.id === addr.id ? "bg-[#0c831f] text-white" : "bg-slate-100 text-slate-500"}`}>
@@ -1391,11 +1519,10 @@ const CheckoutPage = () => {
             {coupons.map((coupon) => (
               <div
                 key={coupon.code}
-                className={`p-4 rounded-2xl border-2 transition-all relative overflow-hidden ${
-                  selectedCoupon?.code === coupon.code
+                className={`p-4 rounded-2xl border-2 transition-all relative overflow-hidden ${selectedCoupon?.code === coupon.code
                     ? "border-[#0c831f] bg-green-50 shadow-sm"
                     : "border-slate-100 bg-white hover:border-slate-200"
-                }`}>
+                  }`}>
                 {selectedCoupon?.code === coupon.code && (
                   <div className="absolute top-0 right-0 p-1.5 bg-[#0c831f] text-white rounded-bl-xl">
                     <Check size={12} strokeWidth={4} />
@@ -1416,11 +1543,10 @@ const CheckoutPage = () => {
                     <button
                       onClick={() => handleApplyCoupon(coupon)}
                       disabled={selectedCoupon?.code === coupon.code}
-                      className={`w-full py-2.5 rounded-xl font-bold text-sm transition-all ${
-                        selectedCoupon?.code === coupon.code
+                      className={`w-full py-2.5 rounded-xl font-bold text-sm transition-all ${selectedCoupon?.code === coupon.code
                           ? "bg-white text-[#0c831f] border-2 border-[#0c831f] cursor-default"
                           : "bg-[#0c831f] text-white hover:bg-[#0b721b]"
-                      }`}>
+                        }`}>
                       {selectedCoupon?.code === coupon.code
                         ? "Applied"
                         : "Apply Now"}

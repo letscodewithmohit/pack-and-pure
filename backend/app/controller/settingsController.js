@@ -31,6 +31,14 @@ const ALLOWED_KEYS = [
   "keywords",
   "returnDeliveryCommission",
   "codCancelBlockThreshold",
+  "hubLocation",
+  "baseDeliveryFee",
+  "baseFreeKm",
+  "perKmDeliveryCharge",
+  "freeDeliveryThreshold",
+  "platformFee",
+  "gstPercentage",
+  "maxServiceRadius",
 ];
 
 /** Joi schema for validating settings update payload */
@@ -61,6 +69,17 @@ const updateSettingsSchema = Joi.object({
   keywords: Joi.array().items(Joi.string().max(200)),
   returnDeliveryCommission: Joi.number().min(0),
   codCancelBlockThreshold: Joi.number().integer().min(1).max(20),
+  hubLocation: Joi.object({
+    type: Joi.string().valid("Point"),
+    coordinates: Joi.array().items(Joi.number()).length(2),
+  }),
+  baseDeliveryFee: Joi.number().min(0),
+  baseFreeKm: Joi.number().min(0),
+  perKmDeliveryCharge: Joi.number().min(0),
+  freeDeliveryThreshold: Joi.number().min(0),
+  platformFee: Joi.number().min(0),
+  gstPercentage: Joi.number().min(0).max(100),
+  maxServiceRadius: Joi.number().min(0),
 }).unknown(false);
 
 /**
@@ -77,7 +96,7 @@ export const getPublicSettings = async (req, res) => {
 
     let settings = await Setting.findOne(filter)
       .select(
-        "appName supportEmail supportPhone currencySymbol currencyCode timezone logoUrl faviconUrl primaryColor secondaryColor returnDeliveryCommission codCancelBlockThreshold createdAt",
+        "appName supportEmail supportPhone currencySymbol currencyCode timezone logoUrl faviconUrl primaryColor secondaryColor address returnDeliveryCommission codCancelBlockThreshold hubLocation baseDeliveryFee baseFreeKm perKmDeliveryCharge freeDeliveryThreshold platformFee gstPercentage maxServiceRadius createdAt",
       )
       .lean();
 

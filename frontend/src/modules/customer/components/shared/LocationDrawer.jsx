@@ -125,6 +125,9 @@ const LocationDrawer = ({ isOpen, onClose }) => {
     const newLoc = {
       name: address.address,
       time: "12-15 mins",
+      // Ensure coordinates are passed to trigger product fetching
+      latitude: address.location?.lat,
+      longitude: address.location?.lng,
     };
     updateLocation(newLoc);
     onClose();
@@ -421,7 +424,13 @@ const LocationDrawer = ({ isOpen, onClose }) => {
                       : "Use your current location"}
                   </h3>
                   <p className="text-[13px] text-slate-500 font-medium">
-                    {currentLocation.name}
+                    {locationError ? (
+                      <span className="text-red-500 flex items-center gap-1">
+                        ⚠️ {locationError}
+                      </span>
+                    ) : (
+                      currentLocation.name
+                    )}
                   </p>
                 </div>
                 <ChevronRight size={20} className="text-slate-300" />

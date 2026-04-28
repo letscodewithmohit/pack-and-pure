@@ -83,7 +83,7 @@ const DeliveryLayout = () => {
       distance: "Nearby",
       estTime: "10-15 min",
       value: total,
-      earnings: Math.round(total * 0.1),
+      earnings: p.deliveryFee ?? Math.round(total * 0.1),
       expiresAt: payload.deliverySearchExpiresAt || null,
     });
     const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3");
@@ -108,9 +108,7 @@ const DeliveryLayout = () => {
     shownOrderIdsRef.current = new Set(shownOrderIdsRef.current).add(newOrder.orderId);
     const total = newOrder.pricing?.total || 0;
     const pickupLabel = newOrder.hubFlowEnabled
-      ? newOrder.hubId
-        ? `Hub ${newOrder.hubId}`
-        : "Hub"
+      ? newOrder.pickupAddress || (newOrder.hubId ? `Hub ${newOrder.hubId}` : "Hub")
       : newOrder.seller?.shopName || "Seller";
     setActiveOrder({
       id: newOrder.orderId,
@@ -120,7 +118,7 @@ const DeliveryLayout = () => {
       distance: "Nearby",
       estTime: "10-15 min",
       value: total,
-      earnings: Math.round(total * 0.1),
+      earnings: newOrder.pricing?.deliveryFee ?? Math.round(total * 0.1),
       expiresAt: newOrder.deliverySearchExpiresAt || null,
     });
     const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3");

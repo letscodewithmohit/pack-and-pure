@@ -41,13 +41,13 @@ const INITIAL_DELIVERY_RADIUS_M = () =>
   parseInt(process.env.INITIAL_DELIVERY_RADIUS_METERS || "5000", 10);
 
 /** Payload for `delivery:broadcast` + Notification.data — lets the app show a modal without relying on GET /available alone. */
-function deliveryBroadcastPayloadFromOrder(order, extra = {}) {
+function deliveryBroadcastPayloadFromOrder(order, settings = null, extra = {}) {
   const seller =
     order.seller && typeof order.seller === "object" && order.seller !== null
       ? order.seller
       : null;
   const pickup = seller?.shopName || "Seller";
-  const hubPickup = order?.hubFlowEnabled ? getHubPickupPoint(order) : null;
+  const hubPickup = order?.hubFlowEnabled ? getHubPickupPoint(order, settings) : null;
   const pickupName = hubPickup?.label || pickup;
   const drop =
     typeof order.address?.address === "string" && order.address.address.trim()
@@ -64,6 +64,7 @@ function deliveryBroadcastPayloadFromOrder(order, extra = {}) {
       pickup: pickupName,
       drop,
       total: order.pricing?.total ?? 0,
+      deliveryFee: order.pricing?.deliveryFee ?? 0,
     },
     deliverySearchExpiresAt: order.deliverySearchExpiresAt,
     ...extra,
@@ -85,7 +86,16 @@ function parseHubCoordinate(...keys) {
   return null;
 }
 
-function getHubPickupPoint(order) {
+function getHubPickupPoint(order, settings = null) {
+  if (settings?.hubLocation?.coordinates) {
+    const [lng, lat] = settings.hubLocation.coordinates;
+    return {
+      lat,
+      lng,
+      label: settings.address || "Main Hub",
+    };
+  }
+
   const lat = parseHubCoordinate("HUB_LOCATION_LAT", "HUB_LAT", "DEFAULT_HUB_LAT");
   const lng = parseHubCoordinate("HUB_LOCATION_LNG", "HUB_LNG", "DEFAULT_HUB_LNG");
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
@@ -311,6 +321,9 @@ export async function sellerAcceptAtomic(sellerId, orderId) {
     expiresAt: updated.deliverySearchExpiresAt,
   });
 
+  const Setting = (await import("../models/setting.js")).default;
+  const settings = await Setting.findOne().lean();
+
   emitOrderStatusUpdate(
     updated.orderId,
     {
@@ -321,7 +334,7 @@ export async function sellerAcceptAtomic(sellerId, orderId) {
   );
   await emitDeliveryBroadcastForSeller(
     updated.seller,
-    deliveryBroadcastPayloadFromOrder(updated),
+    deliveryBroadcastPayloadFromOrder(updated, settings),
   );
 
   return updated;
@@ -422,6 +435,9 @@ export async function startHubDeliverySearchAtomic(orderId) {
     expiresAt: updated.deliverySearchExpiresAt,
   });
 
+  const Setting = (await import("../models/setting.js")).default;
+  const settings = await Setting.findOne().lean();
+
   emitOrderStatusUpdate(
     updated.orderId,
     {
@@ -434,11 +450,11 @@ export async function startHubDeliverySearchAtomic(orderId) {
   if (updated.seller) {
     await emitDeliveryBroadcastForSeller(
       updated.seller,
-      deliveryBroadcastPayloadFromOrder(updated),
+      deliveryBroadcastPayloadFromOrder(updated, settings),
     );
   } else {
     emitDeliveryBroadcast(
-      deliveryBroadcastPayloadFromOrder(updated, { hubFlow: true }),
+      deliveryBroadcastPayloadFromOrder(updated, settings, { hubFlow: true }),
     );
   }
 
