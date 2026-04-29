@@ -36,6 +36,10 @@ const orderSchema = new mongoose.Schema(
           type: Number,
           required: true,
         },
+        purchasePrice: {
+          type: Number,
+          default: 0,
+        },
         variantSlot: String, // To identify which variant was bought
         image: String,
       },

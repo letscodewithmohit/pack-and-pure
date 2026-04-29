@@ -11,13 +11,16 @@ export const getSellerStats = async (req, res) => {
     try {
         const sellerId = req.user.id;
 
-        // 1. Basic Stats (Total Sales, Total Orders)
-        const orders = await Order.find({ seller: sellerId, status: { $ne: 'cancelled' } })
-            .select("pricing.total")
-            .lean();
+        // 1. Basic Stats (Total Supplies, Total Orders/Requests)
+        const sellerTransactions = await Transaction.find({ 
+            user: sellerId, 
+            userModel: 'Seller', 
+            type: { $in: ['Supply Earning', 'Order Payment'] },
+            status: 'Settled'
+        }).lean();
 
-        const totalSales = orders.reduce((acc, order) => acc + (order.pricing?.total || 0), 0);
-        const totalOrders = orders.length;
+        const totalSales = sellerTransactions.reduce((acc, t) => acc + (t.amount || 0), 0);
+        const totalOrders = sellerTransactions.length;
         const avgOrderValue = totalOrders > 0 ? (totalSales / totalOrders) : 0;
 
         // 2. Sales Trend (Dynamic Range)
@@ -38,18 +41,20 @@ export const getSellerStats = async (req, res) => {
             startDate.setDate(startDate.getDate() - 7);
         }
 
-        const salesTrend = await Order.aggregate([
+        const salesTrend = await Transaction.aggregate([
             {
                 $match: {
-                    seller: new mongoose.Types.ObjectId(sellerId),
-                    status: { $ne: 'cancelled' },
+                    user: new mongoose.Types.ObjectId(sellerId),
+                    userModel: 'Seller',
+                    type: { $in: ['Supply Earning', 'Order Payment'] },
+                    status: 'Settled',
                     createdAt: { $gte: startDate }
                 }
             },
             {
                 $group: {
                     _id: { $dateToString: { format: aggregationFormat, date: "$createdAt" } },
-                    sales: { $sum: "$pricing.total" },
+                    sales: { $sum: "$amount" },
                     orders: { $sum: 1 }
                 }
             },
@@ -118,24 +123,28 @@ export const getSellerStats = async (req, res) => {
         const fourteenDaysAgo = new Date();
         fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
 
-        const currentWeekOrders = await Order.find({
-            seller: sellerId,
-            status: { $ne: 'cancelled' },
+        const currentWeekTxns = await Transaction.find({
+            user: sellerId,
+            userModel: 'Seller',
+            type: { $in: ['Supply Earning', 'Order Payment'] },
+            status: 'Settled',
             createdAt: { $gte: sevenDaysAgo }
-        });
+        }).lean();
 
-        const prevWeekOrders = await Order.find({
-            seller: sellerId,
-            status: { $ne: 'cancelled' },
+        const prevWeekTxns = await Transaction.find({
+            user: sellerId,
+            userModel: 'Seller',
+            type: { $in: ['Supply Earning', 'Order Payment'] },
+            status: 'Settled',
             createdAt: { $gte: fourteenDaysAgo, $lt: sevenDaysAgo }
-        });
+        }).lean();
 
-        const currentSales = currentWeekOrders.reduce((acc, o) => acc + (o.pricing?.total || 0), 0);
-        const prevSales = prevWeekOrders.reduce((acc, o) => acc + (o.pricing?.total || 0), 0);
+        const currentSales = currentWeekTxns.reduce((acc, t) => acc + (t.amount || 0), 0);
+        const prevSales = prevWeekTxns.reduce((acc, t) => acc + (t.amount || 0), 0);
         const salesTrendPerc = prevSales === 0 ? (currentSales > 0 ? 100 : 0) : (((currentSales - prevSales) / prevSales) * 100).toFixed(1);
 
-        const currentOrdersCount = currentWeekOrders.length;
-        const prevOrdersCount = prevWeekOrders.length;
+        const currentOrdersCount = currentWeekTxns.length;
+        const prevOrdersCount = prevWeekTxns.length;
         const ordersTrendPerc = prevOrdersCount === 0 ? (currentOrdersCount > 0 ? 100 : 0) : (((currentOrdersCount - prevOrdersCount) / prevOrdersCount) * 100).toFixed(1);
 
         // 3. Category Distribution (Radar Chart)
@@ -166,12 +175,21 @@ export const getSellerStats = async (req, res) => {
         ]);
 
         // 4. Insights (Peak Time, Top City)
-        const insightsData = await Order.aggregate([
-            { $match: { seller: new mongoose.Types.ObjectId(sellerId), status: { $ne: 'cancelled' } } },
+        const insightsData = await PurchaseRequest.aggregate([
+            { $match: { vendorId: new mongoose.Types.ObjectId(sellerId), status: 'verified' } },
+            {
+                $lookup: {
+                    from: "orders",
+                    localField: "orderId",
+                    foreignField: "_id",
+                    as: "order"
+                }
+            },
+            { $unwind: "$order" },
             {
                 $facet: {
                     topCities: [
-                        { $group: { _id: "$address.city", count: { $sum: 1 } } },
+                        { $group: { _id: "$order.address.city", count: { $sum: 1 } } },
                         { $sort: { count: -1 } },
                         { $limit: 1 }
                     ],
@@ -190,8 +208,8 @@ export const getSellerStats = async (req, res) => {
         const peakTime = peakHour !== undefined ? `${peakHour}:00 - ${peakHour + 2}:00` : "N/A";
 
         // 5. Top Products with REAL Trends
-        const topProductsData = await Order.aggregate([
-            { $match: { seller: new mongoose.Types.ObjectId(sellerId), status: { $ne: 'cancelled' } } },
+        const topProductsData = await PurchaseRequest.aggregate([
+            { $match: { vendorId: new mongoose.Types.ObjectId(sellerId), status: 'verified' } },
             { $unwind: "$items" },
             {
                 $facet: {
@@ -199,10 +217,9 @@ export const getSellerStats = async (req, res) => {
                         { $match: { createdAt: { $gte: sevenDaysAgo } } },
                         {
                             $group: {
-                                _id: "$items.product",
-                                name: { $first: "$items.name" },
-                                sales: { $sum: "$items.quantity" },
-                                revenue: { $sum: { $multiply: ["$items.price", "$items.quantity"] } }
+                                _id: "$items.productId",
+                                sales: { $sum: "$items.shortageQty" },
+                                revenue: { $sum: { $multiply: ["$items.vendorUnitCost", "$items.shortageQty"] } }
                             }
                         }
                     ],
@@ -210,8 +227,8 @@ export const getSellerStats = async (req, res) => {
                         { $match: { createdAt: { $gte: fourteenDaysAgo, $lt: sevenDaysAgo } } },
                         {
                             $group: {
-                                _id: "$items.product",
-                                sales: { $sum: "$items.quantity" }
+                                _id: "$items.productId",
+                                sales: { $sum: "$items.shortageQty" }
                             }
                         }
                     ]
@@ -219,7 +236,12 @@ export const getSellerStats = async (req, res) => {
             }
         ]);
 
-        const currentItems = topProductsData[0].currentWeek;
+        // Fetch names for top products
+        const topProductIds = topProductsData[0].currentWeek.map(p => p._id);
+        const topProductNames = await Product.find({ _id: { $in: topProductIds } }).select("name").lean();
+        const nameMap = new Map(topProductNames.map(p => [p._id.toString(), p.name]));
+
+        const currentItems = topProductsData[0].currentWeek.map(item => ({ ...item, name: nameMap.get(item._id.toString()) || "Product" }));
         const prevItems = topProductsData[0].prevWeek;
 
         const formattedTopProducts = currentItems.map(item => {
@@ -243,16 +265,25 @@ export const getSellerStats = async (req, res) => {
         }).sort((a, b) => b.sales - a.sales).slice(0, 5);
 
         // 6. Traffic Sources & Device Stats
-        const trafficStats = await Order.aggregate([
-            { $match: { seller: new mongoose.Types.ObjectId(sellerId), status: { $ne: 'cancelled' } } },
+        const trafficStats = await PurchaseRequest.aggregate([
+            { $match: { vendorId: new mongoose.Types.ObjectId(sellerId), status: 'verified' } },
+            {
+                $lookup: {
+                    from: "orders",
+                    localField: "orderId",
+                    foreignField: "_id",
+                    as: "order"
+                }
+            },
+            { $unwind: "$order" },
             {
                 $facet: {
                     sources: [
-                        { $group: { _id: "$trafficSource", value: { $sum: 1 } } },
+                        { $group: { _id: "$order.trafficSource", value: { $sum: 1 } } },
                         { $project: { name: "$_id", value: 1, _id: 0 } }
                     ],
                     devices: [
-                        { $group: { _id: "$deviceType", count: { $sum: 1 } } },
+                        { $group: { _id: "$order.deviceType", count: { $sum: 1 } } },
                         { $sort: { count: -1 } }
                     ]
                 }
@@ -325,7 +356,7 @@ export const getSellerEarnings = async (req, res) => {
             .reduce((acc, t) => acc + Math.abs(t.amount), 0);
 
         const totalRevenue = transactions
-            .filter(t => t.type === 'Order Payment')
+            .filter(t => t.type === 'Order Payment' || t.type === 'Supply Earning')
             .reduce((acc, t) => acc + t.amount, 0);
 
         const totalWithdrawn = transactions
@@ -341,7 +372,7 @@ export const getSellerEarnings = async (req, res) => {
                 $match: {
                     user: new mongoose.Types.ObjectId(sellerId),
                     userModel: 'Seller',
-                    type: 'Order Payment',
+                    type: { $in: ['Order Payment', 'Supply Earning'] },
                     createdAt: { $gte: sixMonthsAgo }
                 }
             },

@@ -71,13 +71,13 @@ const SellerTransactions = () => {
                         minute: '2-digit'
                     }),
                     seller: t.user?.shopName || t.user?.name || 'Unknown',
-                    type: t.type === 'Seller Earning' ? 'sale' :
+                    type: (t.type === 'Seller Earning' || t.type === 'Supply Earning') ? 'sale' :
                         (t.type === 'Withdrawal' || t.type === 'Payout') ? 'payout' :
                             t.type.toLowerCase(),
                     amount: t.amount,
-                    commissionRate: t.order?.pricing?.platformFeeRate || 0,
-                    commissionAmount: t.order?.pricing?.platformFee || 0,
-                    taxAmount: t.order?.pricing?.tax || 0,
+                    commissionRate: t.type === 'Supply Earning' ? 0 : (t.order?.pricing?.platformFeeRate || 0),
+                    commissionAmount: t.type === 'Supply Earning' ? 0 : (t.order?.pricing?.platformFee || 0),
+                    taxAmount: t.type === 'Supply Earning' ? 0 : (t.order?.pricing?.tax || 0),
                     netPayable: t.amount,
                     status: t.status.toLowerCase(),
                     paymentMethod: t.paymentMethod || 'Wallet',
@@ -203,7 +203,17 @@ const SellerTransactions = () => {
 
             {/* Filter & Search Bar */}
             <Card className="p-4 border-none shadow-xl ring-1 ring-slate-100/50 bg-white/80 backdrop-blur-xl rounded-xl">
-                <div className="flex flex-col lg:flex-row gap-4">
+                <div className="flex flex-col lg:flex-row gap-4 items-center">
+                    <button
+                        onClick={() => {
+                            fetchTransactions(1);
+                            toast.success("Ledger synchronized");
+                        }}
+                        className="p-3 bg-slate-50 ring-1 ring-slate-100 text-slate-400 hover:text-orange-500 hover:ring-orange-200 rounded-2xl transition-all shadow-sm active:scale-95"
+                        title="Refresh Transactions"
+                    >
+                        <RotateCw className={cn("h-4 w-4", loading && "animate-spin")} />
+                    </button>
                     <div className="flex-1 relative group">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-orange-500 transition-colors" />
                         <input

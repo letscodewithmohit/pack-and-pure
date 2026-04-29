@@ -345,7 +345,17 @@ const OrderDetails = () => {
         return;
       }
     } else {
-      // Store Pickup (step 1-2) - Use seller coordinates
+      // Store Pickup (step 1-2)
+      // Prioritize Hub location if hub flow is enabled
+      const hubLoc = order?.hubLocation?.coordinates;
+      if (order?.hubFlowEnabled && hubLoc && hubLoc.length === 2) {
+        window.open(
+          `https://www.google.com/maps/dir/?api=1&destination=${hubLoc[1]},${hubLoc[0]}`,
+          "_blank"
+        );
+        return;
+      }
+
       const loc = order?.seller?.location?.coordinates;
       if (loc && loc.length === 2) {
         window.open(
@@ -568,10 +578,10 @@ const OrderDetails = () => {
               </div>
               <div className="p-4">
                 <h3 className="font-bold text-lg mb-1">
-                  {order?.hubFlowEnabled ? "Pack n Pure Hub" : (order?.seller?.shopName || "Seller Store")}
+                  {order?.hubFlowEnabled ? (order.hubAddress || "Pack n Pure Hub") : (order?.seller?.shopName || "Seller Store")}
                 </h3>
                 <p className="text-gray-500 text-sm mb-4 leading-relaxed">
-                  {order?.hubFlowEnabled ? "Hub Address (Refer to Map)" : (order?.seller?.address || "Address not available")}
+                  {order?.hubFlowEnabled ? (order.hubAddress || "Main Logistics Hub") : (order?.seller?.address || "Address not available")}
                 </p>
                 <Button onClick={handleNavigate} className="w-full" variant="outline">
                   <Navigation size={18} className="mr-2" /> Navigate to Store

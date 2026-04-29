@@ -58,11 +58,13 @@ export const AuthProvider = ({ children }) => {
                 try {
                     setIsLoading(true);
                     // Use deduplicated fetch to avoid multiple simultaneous profile calls
+                    console.log(`[Auth] Fetching profile for ${currentRole}...`);
                     const endpoint = getProfileEndpointByRole(currentRole);
                     const response = await getWithDedupe(endpoint, {}, { ttl: 5000 });
+                    console.log(`[Auth] Profile fetch success:`, response.data.result?._id || 'No ID');
                     setUser(response.data.result);
                 } catch (error) {
-                    console.error('Failed to fetch profile:', error);
+                    console.error('[Auth] Profile fetch failed:', error.response?.status, error.message);
                     // If 401, axios interceptor will handle it
                 } finally {
                     setIsLoading(false);

@@ -98,6 +98,7 @@ export const placeOrder = async (req, res) => {
         name: item.productId.name,
         quantity: item.quantity,
         price: item.productId.salePrice || item.productId.price,
+        purchasePrice: item.productId.purchasePrice || 0,
         image: item.productId.mainImage,
       }));
     }
@@ -164,9 +165,21 @@ export const placeOrder = async (req, res) => {
           );
         }
 
+        // Always fetch the latest product data to ensure pricing/purchasePrice integrity
+        const productData = await Product.findById(resolvedProductId)
+          .select("_id purchasePrice salePrice price")
+          .lean();
+
+        if (!productData) {
+          return handleResponse(res, 400, `Product not found: ${item?.name || resolvedProductId}`);
+        }
+
         normalizedItems.push({
           ...item,
-          product: resolvedProductId,
+          product: String(productData._id),
+          purchasePrice: productData.purchasePrice || 0,
+          // Re-validate price from DB if needed, but for now we trust the payload's price or fallback
+          price: item.price || productData.salePrice || productData.price,
         });
       }
       orderItems = normalizedItems;
@@ -602,6 +615,15 @@ export const getOrderDetails = async (req, res) => {
       );
     }
     // -----------------------------
+    
+    // Inject Hub Location for Delivery Navigation if Hub Flow is enabled
+    if (order.hubFlowEnabled) {
+      const settings = await Setting.findOne().lean();
+      if (settings && settings.hubLocation) {
+        order.hubLocation = settings.hubLocation;
+        order.hubAddress = settings.address;
+      }
+    }
 
     return handleResponse(res, 200, "Order details fetched", order);
   } catch (error) {

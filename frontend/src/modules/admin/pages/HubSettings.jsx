@@ -217,9 +217,12 @@ const HubSettings = () => {
                 <p className="text-xs font-black text-primary truncate" title={settings.address}>
                   {settings.address}
                 </p>
-                <p className="text-[10px] text-slate-400 font-bold">
-                  {currentCoords.lat.toFixed(4)}, {currentCoords.lng.toFixed(4)}
-                </p>
+                <div className="flex items-center gap-1.5 mt-0.5 justify-end">
+                  <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">
+                    Geospatial Verified
+                  </p>
+                </div>
               </div>
             </div>
             

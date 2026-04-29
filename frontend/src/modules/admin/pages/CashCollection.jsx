@@ -43,6 +43,12 @@ const CashCollection = () => {
     const [historyTotal, setHistoryTotal] = useState(0);
     const [loading, setLoading] = useState(true);
     const [detailsLoading, setDetailsLoading] = useState(false);
+    const [backendStats, setBackendStats] = useState({
+        totalInHand: 0,
+        overLimitCount: 0,
+        collectedToday: 0,
+        avgBalance: 0
+    });
 
     const fetchData = async (cashPage = 1, histPage = 1) => {
         try {
@@ -58,6 +64,14 @@ const CashCollection = () => {
                 setRidersCashData(riders);
                 setRidersTotal(typeof payload.total === 'number' ? payload.total : riders.length);
                 setRidersPage(typeof payload.page === 'number' ? payload.page : cashPage);
+                if (payload.stats) {
+                    setBackendStats({
+                        totalInHand: payload.stats.totalInHand || 0,
+                        overLimitCount: payload.stats.overLimitCount || 0,
+                        collectedToday: payload.stats.collectedToday || 0,
+                        avgBalance: payload.stats.avgBalance || 0
+                    });
+                }
             }
             if (historyRes.data.success) {
                 const payload = historyRes.data.result || {};
@@ -113,13 +127,10 @@ const CashCollection = () => {
     }, [selectedRider]);
 
     const stats = {
-        totalInHand: (ridersCashData || []).reduce((acc, r) => acc + (r.currentCash || 0), 0),
-        overLimitCount: (ridersCashData || []).filter(r => (r.currentCash || 0) >= (r.limit || 5000)).length,
-        todaySettled: (historyData || []).filter(h => {
-            const today = new Date().toLocaleDateString();
-            return new Date(h.date).toLocaleDateString() === today;
-        }).reduce((acc, h) => acc + (h.amount || 0), 0),
-        avgBalance: (ridersCashData || []).length ? (ridersCashData || []).reduce((acc, r) => acc + (r.currentCash || 0), 0) / ridersCashData.length : 0
+        totalInHand: backendStats.totalInHand,
+        overLimitCount: backendStats.overLimitCount,
+        todaySettled: backendStats.collectedToday, // Display today's collection instead of settlements
+        avgBalance: backendStats.avgBalance
     };
 
     const filteredRiders = (ridersCashData || []).filter(r =>
@@ -230,6 +241,16 @@ const CashCollection = () => {
                 </div>
 
                 <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => {
+                            fetchData(ridersPage, historyPage);
+                            toast.success("Cash balances synchronized");
+                        }}
+                        className="p-3 bg-white ring-1 ring-slate-200 text-slate-400 hover:text-emerald-600 hover:ring-emerald-200 rounded-2xl transition-all shadow-sm active:scale-95"
+                        title="Refresh Cash Data"
+                    >
+                        <RotateCw className={cn("h-4 w-4", loading && "animate-spin")} />
+                    </button>
                     <div className="relative group">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-emerald-500 transition-colors" />
                         <input

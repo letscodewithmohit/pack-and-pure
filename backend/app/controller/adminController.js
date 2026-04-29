@@ -64,7 +64,6 @@ export const getAdminStats = async (req, res) => {
       .populate("customer", "name");
 
     // 5. Category Distribution (Mock logic for now based on orders if products don't have categories)
-    // Actually, products DO have categories. Let's aggregate from products or orders.
     const categoryData = await Product.aggregate([
       { $group: { _id: "$headerId", count: { $sum: 1 } } },
       {
@@ -140,7 +139,7 @@ export const getAdminStats = async (req, res) => {
         name: p.name,
         sales: p.sales,
         rev: `₹${p.rev.toFixed(2)}`,
-        trend: "+5%", // Mock trend for now
+        trend: "+5%",
         cat: "Product",
         icon: "📦",
         color: "bg-blue-50 text-blue-600",
@@ -157,17 +156,8 @@ export const getAdminStats = async (req, res) => {
 export const getPlatformSettings = async (req, res) => {
   try {
     let settings = await Setting.findOne({});
-
-    if (!settings) {
-      settings = await Setting.create({});
-    }
-
-    return handleResponse(
-      res,
-      200,
-      "Platform settings fetched successfully",
-      settings,
-    );
+    if (!settings) settings = await Setting.create({});
+    return handleResponse(res, 200, "Platform settings fetched successfully", settings);
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
@@ -176,20 +166,8 @@ export const getPlatformSettings = async (req, res) => {
 export const updatePlatformSettings = async (req, res) => {
   try {
     const payload = req.body || {};
-
-    // We keep a single settings document for the platform
-    const settings = await Setting.findOneAndUpdate(
-      {},
-      { $set: payload },
-      { new: true, upsert: true },
-    );
-
-    return handleResponse(
-      res,
-      200,
-      "Platform settings updated successfully",
-      settings,
-    );
+    const settings = await Setting.findOneAndUpdate({}, { $set: payload }, { new: true, upsert: true });
+    return handleResponse(res, 200, "Platform settings updated successfully", settings);
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
@@ -201,15 +179,8 @@ export const updatePlatformSettings = async (req, res) => {
 export const getAdminProfile = async (req, res) => {
   try {
     const admin = await Admin.findById(req.user.id);
-    if (!admin) {
-      return handleResponse(res, 404, "Admin not found");
-    }
-    return handleResponse(
-      res,
-      200,
-      "Admin profile fetched successfully",
-      admin,
-    );
+    if (!admin) return handleResponse(res, 404, "Admin not found");
+    return handleResponse(res, 200, "Admin profile fetched successfully", admin);
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
@@ -221,27 +192,14 @@ export const getAdminProfile = async (req, res) => {
 export const updateAdminProfile = async (req, res) => {
   try {
     const { name, email } = req.body;
-
     const admin = await Admin.findById(req.user.id);
-    if (!admin) {
-      return handleResponse(res, 404, "Admin not found");
-    }
-
+    if (!admin) return handleResponse(res, 404, "Admin not found");
     if (name) admin.name = name;
     if (email) admin.email = email;
-
     const updatedAdmin = await admin.save();
-
-    return handleResponse(
-      res,
-      200,
-      "Admin profile updated successfully",
-      updatedAdmin,
-    );
+    return handleResponse(res, 200, "Admin profile updated successfully", updatedAdmin);
   } catch (error) {
-    if (error.code === 11000) {
-      return handleResponse(res, 400, "Email already in use");
-    }
+    if (error.code === 11000) return handleResponse(res, 400, "Email already in use");
     return handleResponse(res, 500, error.message);
   }
 };
@@ -252,20 +210,12 @@ export const updateAdminProfile = async (req, res) => {
 export const updateAdminPassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-
     const admin = await Admin.findById(req.user.id).select("+password");
-    if (!admin) {
-      return handleResponse(res, 404, "Admin not found");
-    }
-
+    if (!admin) return handleResponse(res, 404, "Admin not found");
     const isMatch = await admin.comparePassword(currentPassword);
-    if (!isMatch) {
-      return handleResponse(res, 401, "Invalid current password");
-    }
-
+    if (!isMatch) return handleResponse(res, 401, "Invalid current password");
     admin.password = newPassword;
     await admin.save();
-
     return handleResponse(res, 200, "Password updated successfully");
   } catch (error) {
     return handleResponse(res, 500, error.message);
@@ -273,39 +223,22 @@ export const updateAdminPassword = async (req, res) => {
 };
 
 /* ===============================
-   GET DELIVERY PARTNERS (Admin Only)
+   GET DELIVERY PARTNERS
 ================================ */
 export const getDeliveryPartners = async (req, res) => {
   try {
     const { status, verified } = req.query;
     let query = {};
+    if (status === "online") query.isOnline = true;
+    else if (status === "offline") query.isOnline = false;
+    if (verified === "true") query.isVerified = true;
+    else if (verified === "false") query.isVerified = false;
 
-    if (status === "online") {
-      query.isOnline = true;
-    } else if (status === "offline") {
-      query.isOnline = false;
-    }
-
-    if (verified === "true") {
-      query.isVerified = true;
-    } else if (verified === "false") {
-      query.isVerified = false;
-    }
-
-    const { page, limit, skip } = getPagination(req, {
-      defaultLimit: 25,
-      maxLimit: 200,
-    });
-
+    const { page, limit, skip } = getPagination(req, { defaultLimit: 25, maxLimit: 200 });
     const [deliveryPartners, total] = await Promise.all([
-      Delivery.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+      Delivery.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       Delivery.countDocuments(query),
     ]);
-
     return handleResponse(res, 200, "Delivery partners fetched successfully", {
       items: deliveryPartners,
       page,
@@ -318,40 +251,22 @@ export const getDeliveryPartners = async (req, res) => {
   }
 };
 
-/* ===============================
-   APPROVE DELIVERY PARTNER
-================================ */
 export const approveDeliveryPartner = async (req, res) => {
   try {
     const { id } = req.params;
-    const rider = await Delivery.findByIdAndUpdate(
-      id,
-      { isVerified: true },
-      { new: true },
-    );
-
-    if (!rider) {
-      return handleResponse(res, 404, "Rider not found");
-    }
-
+    const rider = await Delivery.findByIdAndUpdate(id, { isVerified: true }, { new: true });
+    if (!rider) return handleResponse(res, 404, "Rider not found");
     return handleResponse(res, 200, "Rider approved successfully", rider);
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
 
-/* ===============================
-   REJECT DELIVERY PARTNER
-================================ */
 export const rejectDeliveryPartner = async (req, res) => {
   try {
     const { id } = req.params;
     const rider = await Delivery.findByIdAndDelete(id);
-
-    if (!rider) {
-      return handleResponse(res, 404, "Rider not found");
-    }
-
+    if (!rider) return handleResponse(res, 404, "Rider not found");
     return handleResponse(res, 200, "Rider application rejected and removed");
   } catch (error) {
     return handleResponse(res, 500, error.message);
@@ -359,68 +274,31 @@ export const rejectDeliveryPartner = async (req, res) => {
 };
 
 /* ===============================
-   GET ACTIVE FLEET (Admin Only)
+   GET ACTIVE FLEET
 ================================ */
 export const getActiveFleet = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req, {
-      defaultLimit: 25,
-      maxLimit: 200,
-    });
-
-    const query = {
-      deliveryBoy: { $ne: null },
-      status: { $in: ["confirmed", "packed", "shipped", "out_for_delivery"] },
-    };
-
+    const { page, limit, skip } = getPagination(req, { defaultLimit: 25, maxLimit: 200 });
+    const query = { deliveryBoy: { $ne: null }, status: { $in: ["confirmed", "packed", "shipped", "out_for_delivery"] } };
     const [activeOrders, total] = await Promise.all([
-      Order.find(query)
-        .sort({ updatedAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate("deliveryBoy", "name phone documents vehicleType")
-        .populate("seller", "shopName address name")
-        .populate("customer", "name phone")
-        .lean(),
+      Order.find(query).sort({ updatedAt: -1 }).skip(skip).limit(limit).populate("deliveryBoy", "name phone documents vehicleType").populate("seller", "shopName address name").populate("customer", "name phone").lean(),
       Order.countDocuments(query),
     ]);
-
     const fleetData = activeOrders.map((order) => ({
       id: order.orderId,
-      status:
-        order.status === "out_for_delivery"
-          ? "On the Way"
-          : order.status === "packed"
-            ? "At Pickup"
-            : order.status === "shipped"
-              ? "In Transit"
-              : "Assigned",
+      status: order.status === "out_for_delivery" ? "On the Way" : order.status === "packed" ? "At Pickup" : order.status === "shipped" ? "In Transit" : "Assigned",
       deliveryBoy: {
         name: order.deliveryBoy?.name || "Unknown",
         phone: order.deliveryBoy?.phone || "N/A",
         id: order.deliveryBoy?._id || "N/A",
         vehicle: order.deliveryBoy?.vehicleType || "N/A",
-        image:
-          order.deliveryBoy?.documents?.profileImage ||
-          "https://via.placeholder.com/200",
+        image: order.deliveryBoy?.documents?.profileImage || "https://via.placeholder.com/200",
       },
-      seller: {
-        name: order.seller?.shopName || order.seller?.name || "Unknown",
-      },
-      customer: {
-        name: order.customer?.name || "Guest",
-        phone: order.customer?.phone || "N/A",
-      },
+      seller: { name: order.seller?.shopName || order.seller?.name || "Unknown" },
+      customer: { name: order.customer?.name || "Guest", phone: order.customer?.phone || "N/A" },
       lastUpdate: order.updatedAt,
     }));
-
-    return handleResponse(res, 200, "Active fleet fetched successfully", {
-      items: fleetData,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit) || 1,
-    });
+    return handleResponse(res, 200, "Active fleet fetched successfully", { items: fleetData, page, limit, total, totalPages: Math.ceil(total / limit) || 1 });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
@@ -431,86 +309,34 @@ export const getActiveFleet = async (req, res) => {
 ================================ */
 export const getAdminWalletData = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req, {
-      defaultLimit: 25,
-      maxLimit: 100,
-    });
-
-    // 1. Aggregate Order Data for Earning Stats
+    const { page, limit, skip } = getPagination(req, { defaultLimit: 25, maxLimit: 100 });
     const orderStats = await Order.aggregate([
       { $match: { status: "delivered" } },
       {
-        $group: {
-          _id: null,
-          totalPlatformEarning: { $sum: "$pricing.total" },
-          totalAdminEarning: { $sum: "$pricing.platformFee" },
-        },
+        $project: {
+          total: "$pricing.total",
+          deliveryFee: { $ifNull: ["$pricing.deliveryFee", 0] },
+          supplyCost: {
+            $reduce: {
+              input: "$items",
+              initialValue: 0,
+              in: { $add: ["$$value", { $multiply: [{ $ifNull: ["$$this.purchasePrice", "$$this.price"] }, "$$this.quantity"] }] }
+            }
+          }
+        }
       },
+      { $group: { _id: null, totalPlatformEarning: { $sum: "$total" }, totalAdminEarning: { $sum: { $subtract: ["$total", { $add: ["$deliveryFee", "$supplyCost"] }] } } } }
     ]);
-
-    const stats = orderStats[0] || {
-      totalPlatformEarning: 0,
-      totalAdminEarning: 0,
-    };
-
-    // 2. Aggregate Payout Stats from Transactions
+    const stats = orderStats[0] || { totalPlatformEarning: 0, totalAdminEarning: 0 };
     const payoutStats = await Transaction.aggregate([
-      {
-        $group: {
-          _id: "$userModel",
-          pendingPayouts: {
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $in: ["$status", ["Pending", "Processing"]] },
-                    { $gt: ["$amount", 0] }, // positive amounts are earnings/payouts owed
-                  ],
-                },
-                "$amount",
-                0,
-              ],
-            },
-          },
-          systemFloat: {
-            // Negative amounts from delivery partners (COD)
-            $sum: {
-              $cond: [
-                {
-                  $and: [
-                    { $eq: ["$userModel", "Delivery"] },
-                    { $in: ["$status", ["Pending", "Processing"]] },
-                    { $lt: ["$amount", 0] },
-                  ],
-                },
-                "$amount",
-                0,
-              ],
-            },
-          },
-        },
-      },
+      { $group: { _id: "$userModel", pendingPayouts: { $sum: { $cond: [{ $and: [{ $in: ["$status", ["Pending", "Processing"]] }, { $gt: ["$amount", 0] }] }, "$amount", 0] } }, systemFloat: { $sum: { $cond: [{ $and: [{ $eq: ["$userModel", "Delivery"] }, { $in: ["$status", ["Pending", "Processing"]] }, { $lt: ["$amount", 0] }] }, "$amount", 0] } } } }
     ]);
-
-    const sellerStats = payoutStats.find((s) => s._id === "Seller") || {
-      pendingPayouts: 0,
-    };
-    const deliveryStats = payoutStats.find((s) => s._id === "Delivery") || {
-      pendingPayouts: 0,
-      systemFloat: 0,
-    };
-
-    // 3. Fetch Transactions (paginated)
+    const sellerStats = payoutStats.find((s) => s._id === "Seller") || { pendingPayouts: 0 };
+    const deliveryStats = payoutStats.find((s) => s._id === "Delivery") || { pendingPayouts: 0, systemFloat: 0 };
     const [recentTransactions, totalTransactions] = await Promise.all([
-      Transaction.find()
-        .populate("user", "name shopName")
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+      Transaction.find().populate("user", "name shopName").sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       Transaction.countDocuments(),
     ]);
-
     const transactionItems = recentTransactions.map((t) => ({
       id: (t.reference || t._id).toString(),
       type: t.type,
@@ -519,13 +345,9 @@ export const getAdminWalletData = async (req, res) => {
       sender: t.amount < 0 ? t.user?.name || t.userModel : "System/Order",
       recipient: t.amount > 0 ? t.user?.name || t.userModel : "Platform Wallet",
       date: t.createdAt.toLocaleDateString(),
-      time: t.createdAt.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      time: t.createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       notes: t.type,
     }));
-
     return handleResponse(res, 200, "Admin wallet data fetched", {
       stats: {
         totalPlatformEarning: stats.totalPlatformEarning,
@@ -534,13 +356,7 @@ export const getAdminWalletData = async (req, res) => {
         deliveryPendingPayouts: deliveryStats.pendingPayouts,
         systemFloat: Math.abs(deliveryStats.systemFloat),
       },
-      transactions: {
-        items: transactionItems,
-        page,
-        limit,
-        total: totalTransactions,
-        totalPages: Math.ceil(totalTransactions / limit) || 1,
-      },
+      transactions: { items: transactionItems, page, limit, total: totalTransactions, totalPages: Math.ceil(totalTransactions / limit) || 1 },
     });
   } catch (error) {
     return handleResponse(res, 500, error.message);
@@ -548,168 +364,86 @@ export const getAdminWalletData = async (req, res) => {
 };
 
 /* ===============================
-   GET DELIVERY TRANSACTIONS (Admin)
+   GET DELIVERY TRANSACTIONS
 ================================ */
 export const getDeliveryTransactions = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req, {
-      defaultLimit: 25,
-      maxLimit: 200,
-    });
-
+    const { page, limit, skip } = getPagination(req, { defaultLimit: 25, maxLimit: 200 });
     const query = { userModel: "Delivery" };
-
-    const transactions = await Transaction.find(query)
-      .populate("user", "name phone documents")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
-
-    const total = await Transaction.countDocuments(query);
-
-    return handleResponse(res, 200, "Delivery transactions fetched", {
-      items: transactions,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit) || 1,
-    });
-  } catch (error) {
-    return handleResponse(res, 500, error.message);
-  }
-};
-
-/* ===============================
-   GET SELLER WITHDRAWALS (Admin)
-================================ */
-export const getSellerWithdrawals = async (req, res) => {
-  try {
-    const { page, limit, skip } = getPagination(req, {
-      defaultLimit: 25,
-      maxLimit: 200,
-    });
-
-    const query = { userModel: "Seller", type: "Withdrawal" };
-
     const [transactions, total] = await Promise.all([
-      Transaction.find(query)
-        .populate("user", "name shopName phone")
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+      Transaction.find(query).populate("user", "name phone documents").sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       Transaction.countDocuments(query),
     ]);
-
-    return handleResponse(res, 200, "Seller withdrawals fetched", {
-      items: transactions,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit) || 1,
-    });
+    return handleResponse(res, 200, "Delivery transactions fetched", { items: transactions, page, limit, total, totalPages: Math.ceil(total / limit) || 1 });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
 
 /* ===============================
-   GET SELLER TRANSACTIONS (Admin)
+   GET SELLER TRANSACTIONS
 ================================ */
 export const getSellerTransactions = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req, {
-      defaultLimit: 25,
-      maxLimit: 200,
-    });
-
+    const { page, limit, skip } = getPagination(req, { defaultLimit: 25, maxLimit: 200 });
     const query = { userModel: "Seller" };
-
-    const transactions = await Transaction.find(query)
-      .populate("user", "name shopName phone bankDetails")
-      .populate({
-        path: "order",
-        select: "orderId pricing",
-        populate: {
-          path: "items.product",
-          select: "name",
-        },
-      })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
-
-    const total = await Transaction.countDocuments(query);
-
-    return handleResponse(res, 200, "Seller transactions fetched", {
-      items: transactions,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit) || 1,
-    });
+    const [transactions, total] = await Promise.all([
+      Transaction.find(query).populate("user", "name shopName phone bankDetails").populate({ path: "order", select: "orderId pricing", populate: { path: "items.product", select: "name" } }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      Transaction.countDocuments(query),
+    ]);
+    return handleResponse(res, 200, "Seller transactions fetched", { items: transactions, page, limit, total, totalPages: Math.ceil(total / limit) || 1 });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
 
 /* ===============================
-   GET DELIVERY WITHDRAWALS (Admin)
+   GET DELIVERY WITHDRAWALS
 ================================ */
 export const getDeliveryWithdrawals = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req, {
-      defaultLimit: 25,
-      maxLimit: 200,
-    });
-
+    const { page, limit, skip } = getPagination(req, { defaultLimit: 25, maxLimit: 200 });
     const query = { userModel: "Delivery", type: "Withdrawal" };
-
     const [transactions, total] = await Promise.all([
-      Transaction.find(query)
-        .populate("user", "name phone")
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+      Transaction.find(query).populate("user", "name phone").sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       Transaction.countDocuments(query),
     ]);
-
-    return handleResponse(res, 200, "Delivery withdrawals fetched", {
-      items: transactions,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit) || 1,
-    });
+    return handleResponse(res, 200, "Delivery withdrawals fetched", { items: transactions, page, limit, total, totalPages: Math.ceil(total / limit) || 1 });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
 
 /* ===============================
-   UPDATE WITHDRAWAL STATUS (Admin)
+   GET SELLER WITHDRAWALS
+================================ */
+export const getSellerWithdrawals = async (req, res) => {
+  try {
+    const { page, limit, skip } = getPagination(req, { defaultLimit: 25, maxLimit: 200 });
+    const query = { userModel: "Seller", type: "Withdrawal" };
+    const [transactions, total] = await Promise.all([
+      Transaction.find(query).populate("user", "name shopName phone").sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      Transaction.countDocuments(query),
+    ]);
+    return handleResponse(res, 200, "Seller withdrawals fetched", { items: transactions, page, limit, total, totalPages: Math.ceil(total / limit) || 1 });
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+/* ===============================
+   UPDATE WITHDRAWAL STATUS
 ================================ */
 export const updateWithdrawalStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status, reason } = req.body;
-
-    if (!["Settled", "Failed", "Processing"].includes(status)) {
-      return handleResponse(res, 400, "Invalid status");
-    }
-
+    if (!["Settled", "Failed", "Processing"].includes(status)) return handleResponse(res, 400, "Invalid status");
     const transaction = await Transaction.findById(id).populate("user", "name");
-    if (!transaction) {
-      return handleResponse(res, 404, "Transaction not found");
-    }
-
+    if (!transaction) return handleResponse(res, 404, "Transaction not found");
     transaction.status = status;
     if (reason) transaction.notes = reason;
     await transaction.save();
-
     return handleResponse(res, 200, `Withdrawal ${status} successfully`);
   } catch (error) {
     return handleResponse(res, 500, error.message);
@@ -717,22 +451,13 @@ export const updateWithdrawalStatus = async (req, res) => {
 };
 
 /* ===============================
-   SETTLE TRANSACTION (Admin)
+   SETTLE TRANSACTION
 ================================ */
 export const settleTransaction = async (req, res) => {
   try {
     const { id } = req.params;
-    const transaction = await Transaction.findByIdAndUpdate(
-      id,
-      { status: "Settled" },
-      { new: true },
-    ).populate("user", "name");
-
-    if (!transaction) {
-      return handleResponse(res, 404, "Transaction not found");
-    }
-
-    // Notify Rider
+    const transaction = await Transaction.findByIdAndUpdate(id, { status: "Settled" }, { new: true }).populate("user", "name");
+    if (!transaction) return handleResponse(res, 404, "Transaction not found");
     await Notification.create({
       recipient: transaction.user._id,
       recipientModel: "Delivery",
@@ -741,217 +466,75 @@ export const settleTransaction = async (req, res) => {
       type: "payment",
       data: { transactionId: transaction._id },
     });
-
-    return handleResponse(
-      res,
-      200,
-      "Transaction settled successfully",
-      transaction,
-    );
+    return handleResponse(res, 200, "Transaction settled successfully", transaction);
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
 
 /* ===============================
-   BULK SETTLE DELIVERY (Admin)
+   BULK SETTLE DELIVERY
 ================================ */
 export const bulkSettleDelivery = async (req, res) => {
   try {
-    const result = await Transaction.updateMany(
-      { userModel: "Delivery", status: "Pending" },
-      { status: "Settled" },
-    );
-
-    return handleResponse(
-      res,
-      200,
-      `${result.modifiedCount} transactions settled successfully`,
-    );
+    const result = await Transaction.updateMany({ userModel: "Delivery", status: "Pending" }, { status: "Settled" });
+    return handleResponse(res, 200, `${result.modifiedCount} transactions settled successfully`);
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
 
 /* ===============================
-   GET DELIVERY CASH BALANCES (Admin)
+   GET DELIVERY CASH BALANCES
 ================================ */
-
 export const getDeliveryCashBalances = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req, {
-      defaultLimit: 25,
-      maxLimit: 200,
-    });
-
+    const { page, limit, skip } = getPagination(req, { defaultLimit: 25, maxLimit: 200 });
     const ridersPipeline = [
-      // 1. Join Transactions (Cash Collection & Settlement)
+      { $lookup: { from: "transactions", localField: "_id", foreignField: "user", as: "allTransactions" } },
+      { $lookup: { from: "orders", localField: "_id", foreignField: "deliveryBoy", as: "allOrders" } },
       {
-        $lookup: {
-          from: "transactions",
-          localField: "_id",
-          foreignField: "user",
-          as: "allTransactions",
-        },
-      },
-      // 2. Join Orders for counts
-      {
-        $lookup: {
-          from: "orders",
-          localField: "_id",
-          foreignField: "deliveryBoy",
-          as: "allOrders",
-        },
+        $project: {
+          name: 1, phone: 1, avatar: 1, limit: { $ifNull: ["$limit", 5000] }, documents: 1,
+          currentCash: { $reduce: { input: { $filter: { input: "$allTransactions", as: "t", cond: { $in: ["$$t.type", ["Cash Collection", "Cash Settlement"]] } } }, initialValue: 0, in: { $cond: [{ $eq: ["$$this.type", "Cash Collection"] }, { $add: ["$$value", "$$this.amount"] }, { $subtract: ["$$value", { $abs: "$$this.amount" }] }] } } },
+          pendingOrders: { $size: { $filter: { input: "$allOrders", as: "o", cond: { $and: [{ $in: ["$$o.status", ["confirmed", "packed", "picked_up", "out_for_delivery"]] }, { $in: ["$$o.payment.method", ["cash", "cod"]] }] } } } },
+          totalOrders: { $size: { $filter: { input: "$allOrders", as: "o", cond: { $eq: ["$$o.status", "delivered"] } } } },
+          lastSettlementTxn: { $arrayElemAt: [{ $sortArray: { input: { $filter: { input: "$allTransactions", as: "t", cond: { $eq: ["$$t.type", "Cash Settlement"] } } }, sortBy: { createdAt: -1 } } }, 0] },
+        }
       },
       {
         $project: {
-          name: 1,
-          phone: 1,
-          avatar: 1,
-          limit: { $ifNull: ["$limit", 5000] },
-          documents: 1,
-          // Filter Cash Transactions & Calculate currentCash
-          currentCash: {
-            $reduce: {
-              input: {
-                $filter: {
-                  input: "$allTransactions",
-                  as: "t",
-                  cond: {
-                    $in: ["$$t.type", ["Cash Collection", "Cash Settlement"]],
-                  },
-                },
-              },
-              initialValue: 0,
-              in: {
-                $cond: [
-                  { $eq: ["$$this.type", "Cash Collection"] },
-                  { $add: ["$$value", "$$this.amount"] },
-                  { $subtract: ["$$value", { $abs: "$$this.amount" }] },
-                ],
-              },
-            },
-          },
-          // Count Pending COD Orders (confirmed etc)
-          pendingOrders: {
-            $size: {
-              $filter: {
-                input: "$allOrders",
-                as: "o",
-                cond: {
-                  $and: [
-                    {
-                      $in: [
-                        "$$o.status",
-                        [
-                          "confirmed",
-                          "packed",
-                          "picked_up",
-                          "out_for_delivery",
-                        ],
-                      ],
-                    },
-                    { $in: ["$$o.payment.method", ["cash", "cod"]] },
-                  ],
-                },
-              },
-            },
-          },
-          // Count Total Delivered Orders
-          totalOrders: {
-            $size: {
-              $filter: {
-                input: "$allOrders",
-                as: "o",
-                cond: { $eq: ["$$o.status", "delivered"] },
-              },
-            },
-          },
-          // Last Settlement Date
-          lastSettlementTxn: {
-            $arrayElemAt: [
-              {
-                $sortArray: {
-                  input: {
-                    $filter: {
-                      input: "$allTransactions",
-                      as: "t",
-                      cond: { $eq: ["$$t.type", "Cash Settlement"] },
-                    },
-                  },
-                  sortBy: { createdAt: -1 },
-                },
-              },
-              0,
-            ],
-          },
-        },
+          id: "$_id", name: 1, phone: 1, currentCash: 1, limit: 1, pendingOrders: 1, totalOrders: 1,
+          avatar: { $cond: [{ $ifNull: ["$documents.profileImage", false] }, "$documents.profileImage", { $concat: ["https://api.dicebear.com/7.x/avataaars/svg?seed=", "$name"] }] },
+          status: { $cond: [{ $gt: ["$currentCash", 4500] }, "critical", { $cond: [{ $gt: ["$currentCash", 3000] }, "warning", "safe"] }] },
+          lastSettlement: { $ifNull: ["$lastSettlementTxn.createdAt", "Never"] },
+        }
       },
-      {
-        $project: {
-          id: "$_id",
-          name: 1,
-          phone: 1,
-          avatar: {
-            $cond: [
-              { $ifNull: ["$documents.profileImage", false] },
-              "$documents.profileImage",
-              {
-                $concat: [
-                  "https://api.dicebear.com/7.x/avataaars/svg?seed=",
-                  "$name",
-                ],
-              },
-            ],
-          },
-          currentCash: 1,
-          limit: 1,
-          status: {
-            $cond: [
-              { $gt: ["$currentCash", 4500] },
-              "critical",
-              { $cond: [{ $gt: ["$currentCash", 3000] }, "warning", "safe"] },
-            ],
-          },
-          pendingOrders: 1,
-          totalOrders: 1,
-          lastSettlement: {
-            $ifNull: ["$lastSettlementTxn.createdAt", "Never"],
-          },
-        },
-      },
-      {
-        $facet: {
-          meta: [{ $count: "total" }],
-          items: [{ $skip: skip }, { $limit: limit }],
-        },
-      },
+      { $facet: { meta: [{ $count: "total" }], items: [{ $skip: skip }, { $limit: limit }] } }
     ];
 
-    const [aggregateResult] = await Delivery.aggregate(ridersPipeline);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const [aggregateResult, todayCollectedRes] = await Promise.all([
+      Delivery.aggregate(ridersPipeline),
+      Transaction.aggregate([
+        { $match: { type: "Cash Collection", createdAt: { $gte: startOfToday } } },
+        { $group: { _id: null, total: { $sum: "$amount" } } }
+      ]),
+    ]);
+
     const meta = aggregateResult?.meta?.[0];
     const riders = aggregateResult?.items ?? [];
     const total = meta?.total ?? 0;
+    const collectedToday = todayCollectedRes[0]?.total || 0;
 
-    const totalInHand = riders.reduce(
-      (acc, r) => acc + (r.currentCash || 0),
-      0,
-    );
-    const overLimitCount = riders.filter(
-      (r) => (r.currentCash || 0) >= (r.limit || 5000),
-    ).length;
+    const totalInHand = riders.reduce((acc, r) => acc + (r.currentCash || 0), 0);
+    const overLimitCount = riders.filter((r) => (r.currentCash || 0) >= (r.limit || 5000)).length;
 
     return handleResponse(res, 200, "Cash balances fetched", {
-      items: riders,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit) || 1,
-      stats: {
-        totalInHand,
-        overLimitCount,
-        avgBalance: riders.length ? totalInHand / riders.length : 0,
-      },
+      items: riders, page, limit, total, totalPages: Math.ceil(total / limit) || 1,
+      stats: { totalInHand, overLimitCount, collectedToday, avgBalance: riders.length ? totalInHand / riders.length : 0 },
     });
   } catch (error) {
     console.error("Aggregation Error:", error);
@@ -965,33 +548,11 @@ export const getDeliveryCashBalances = async (req, res) => {
 export const settleRiderCash = async (req, res) => {
   try {
     const { riderId, amount, method } = req.body;
-
-    if (!riderId || !amount || amount <= 0) {
-      return handleResponse(res, 400, "Missing riderId or invalid amount");
-    }
-
+    if (!riderId || !amount || amount <= 0) return handleResponse(res, 400, "Missing riderId or invalid amount");
     const rider = await Delivery.findById(riderId);
     if (!rider) return handleResponse(res, 404, "Rider not found");
-
-    const settlement = await Transaction.create({
-      user: riderId,
-      userModel: "Delivery",
-      type: "Cash Settlement",
-      amount: -Math.abs(amount),
-      status: "Settled",
-      reference: `CSH-SET-${Date.now()}`,
-      notes: `Method: ${method || "Cash"}`,
-    });
-
-    // Notify Rider
-    await Notification.create({
-      recipient: riderId,
-      recipientModel: "Delivery",
-      title: "Cash Settled",
-      message: `Admin has collected ₹${amount} cash from you. Your balance is updated.`,
-      type: "payment",
-      data: { transactionId: settlement._id },
-    });
+    const settlement = await Transaction.create({ user: riderId, userModel: "Delivery", type: "Cash Settlement", amount: -Math.abs(amount), status: "Settled", reference: `CSH-SET-${Date.now()}`, notes: `Method: ${method || "Cash"}` });
+    await Notification.create({ recipient: riderId, recipientModel: "Delivery", title: "Cash Settled", message: `Admin has collected ₹${amount} cash from you. Your balance is updated.`, type: "payment", data: { transactionId: settlement._id } });
     return handleResponse(res, 201, "Cash settled successfully", settlement);
   } catch (error) {
     return handleResponse(res, 500, error.message);
@@ -999,30 +560,13 @@ export const settleRiderCash = async (req, res) => {
 };
 
 /* ===============================
-   GET RIDER CASH DETAILS (Admin)
+   GET RIDER CASH DETAILS
 ================================ */
 export const getRiderCashDetails = async (req, res) => {
   try {
     const { id: riderId } = req.params;
-    const transactions = await Transaction.find({
-      user: riderId,
-      userModel: "Delivery",
-      type: "Cash Collection",
-    })
-      .populate("order", "orderId pricing createdAt")
-      .sort({ createdAt: -1 })
-      .limit(20);
-
-    const formatted = transactions.map((t) => ({
-      id: t.order?.orderId || t.reference || "N/A",
-      amount: t.amount,
-      time: new Date(t.createdAt).toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-      date: t.createdAt,
-    }));
-
+    const transactions = await Transaction.find({ user: riderId, userModel: "Delivery", type: "Cash Collection" }).populate("order", "orderId pricing createdAt").sort({ createdAt: -1 }).limit(20);
+    const formatted = transactions.map((t) => ({ id: t.order?.orderId || t.reference || "N/A", amount: t.amount, time: new Date(t.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }), date: t.createdAt }));
     return handleResponse(res, 200, "Rider cash details fetched", formatted);
   } catch (error) {
     return handleResponse(res, 500, error.message);
@@ -1030,383 +574,137 @@ export const getRiderCashDetails = async (req, res) => {
 };
 
 /* ===============================
-   GET CASH SETTLEMENT HISTORY (Admin)
+   GET CASH SETTLEMENT HISTORY
 ================================ */
 export const getCashSettlementHistory = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req, {
-      defaultLimit: 25,
-      maxLimit: 200,
-    });
-
+    const { page, limit, skip } = getPagination(req, { defaultLimit: 25, maxLimit: 200 });
     const query = { userModel: "Delivery", type: "Cash Settlement" };
-
     const [history, total] = await Promise.all([
-      Transaction.find(query)
-        .populate("user", "name")
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
+      Transaction.find(query).populate("user", "name").sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       Transaction.countDocuments(query),
     ]);
-
-    const mappedHistory = history.map((h) => ({
-      id: (h.reference || h._id).toString(),
-      rider: h.user?.name || "Unknown Rider",
-      amount: Math.abs(h.amount),
-      date: h.createdAt,
-      method: h.notes?.replace("Method: ", "") || "Cash Submission",
-      status: "completed",
-    }));
-
-    return handleResponse(res, 200, "Settlement history fetched", {
-      items: mappedHistory,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit) || 1,
-    });
+    const mappedHistory = history.map((h) => ({ id: (h.reference || h._id).toString(), rider: h.user?.name || "Unknown Rider", amount: Math.abs(h.amount), date: h.createdAt, method: h.notes?.replace("Method: ", "") || "Cash Submission", status: "completed" }));
+    return handleResponse(res, 200, "Settlement history fetched", { items: mappedHistory, page, limit, total, totalPages: Math.ceil(total / limit) || 1 });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
 
 /* ===============================
-   GET ALL CUSTOMERS (Admin)
+   GET ALL CUSTOMERS
 ================================ */
 export const getUsers = async (req, res) => {
   try {
     const roleMatch = { $in: ["user", "customer"] };
-    const { page, limit, skip } = getPagination(req, {
-      defaultLimit: 25,
-      maxLimit: 200,
-    });
-
+    const { page, limit, skip } = getPagination(req, { defaultLimit: 25, maxLimit: 200 });
     const pipeline = [
       { $match: { role: roleMatch } },
-      {
-        $lookup: {
-          from: "orders",
-          localField: "_id",
-          foreignField: "customer",
-          as: "userOrders",
-        },
-      },
-      {
-        $project: {
-          id: { $toString: "$_id" },
-          name: { $ifNull: ["$name", "Unnamed Customer"] },
-          businessName: { $ifNull: ["$businessName", ""] },
-          contactPerson: { $ifNull: ["$contactPerson", ""] },
-          email: 1,
-          phone: 1,
-          joinedDate: "$createdAt",
-          status: {
-            $cond: [{ $eq: ["$isActive", false] }, "inactive", "active"],
-          },
-          totalOrders: { $size: "$userOrders" },
-          totalSpent: { $sum: "$userOrders.pricing.total" },
-          lastOrderDate: { $max: "$userOrders.createdAt" },
-          codBlocked: { $ifNull: ["$codBlocked", false] },
-          codCancelCount: { $ifNull: ["$codCancelCount", 0] },
-          codBlockedAt: 1,
-          avatar: {
-            $concat: [
-              "https://api.dicebear.com/7.x/avataaars/svg?seed=",
-              { $ifNull: ["$name", "Customer"] },
-            ],
-          },
-        },
-      },
+      { $lookup: { from: "orders", localField: "_id", foreignField: "customer", as: "userOrders" } },
+      { $project: { id: { $toString: "$_id" }, name: { $ifNull: ["$name", "Unnamed Customer"] }, businessName: { $ifNull: ["$businessName", ""] }, contactPerson: { $ifNull: ["$contactPerson", ""] }, email: 1, phone: 1, joinedDate: "$createdAt", status: { $cond: [{ $eq: ["$isActive", false] }, "inactive", "active"] }, totalOrders: { $size: "$userOrders" }, totalSpent: { $sum: "$userOrders.pricing.total" }, lastOrderDate: { $max: "$userOrders.createdAt" }, codBlocked: { $ifNull: ["$codBlocked", false] }, codCancelCount: { $ifNull: ["$codCancelCount", 0] }, codBlockedAt: 1, avatar: { $concat: ["https://api.dicebear.com/7.x/avataaars/svg?seed=", { $ifNull: ["$name", "Customer"] }] } } },
       { $sort: { totalOrders: -1 } },
     ];
-
-    const [result] = await User.aggregate([
-      ...pipeline,
-      {
-        $facet: {
-          totalCount: [{ $count: "count" }],
-          items: [{ $skip: skip }, { $limit: limit }],
-        },
-      },
-    ]);
-
+    const [result] = await User.aggregate([...pipeline, { $facet: { totalCount: [{ $count: "count" }], items: [{ $skip: skip }, { $limit: limit }] } }]);
     const total = result?.totalCount?.[0]?.count ?? 0;
     const items = result?.items ?? [];
-
-    return handleResponse(res, 200, "Users fetched successfully", {
-      items,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit) || 1,
-    });
+    return handleResponse(res, 200, "Users fetched successfully", { items, page, limit, total, totalPages: Math.ceil(total / limit) || 1 });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
 
 /* ===============================
-   GET USER BY ID (Admin)
+   GET USER BY ID
 ================================ */
 export const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
     const user = await User.aggregate([
-      {
-        $match: {
-          _id: new mongoose.Types.ObjectId(id),
-          role: { $in: ["user", "customer"] },
-        },
-      },
-      {
-        $lookup: {
-          from: "orders",
-          localField: "_id",
-          foreignField: "customer",
-          as: "userOrders",
-        },
-      },
-      {
-        $project: {
-          id: { $toString: "$_id" },
-          name: { $ifNull: ["$name", "Unnamed Customer"] },
-          businessName: { $ifNull: ["$businessName", ""] },
-          contactPerson: { $ifNull: ["$contactPerson", ""] },
-          email: 1,
-          phone: 1,
-          joinedDate: "$createdAt",
-          status: {
-            $cond: [{ $eq: ["$isActive", false] }, "inactive", "active"],
-          },
-          totalOrders: { $size: "$userOrders" },
-          totalSpent: { $sum: "$userOrders.pricing.total" },
-          lastOrderDate: { $max: "$userOrders.createdAt" },
-          avatar: {
-            $concat: [
-              "https://api.dicebear.com/7.x/avataaars/svg?seed=",
-              { $ifNull: ["$name", "Customer"] },
-            ],
-          },
-          addresses: { $ifNull: ["$addresses", []] },
-          codBlocked: { $ifNull: ["$codBlocked", false] },
-          codCancelCount: { $ifNull: ["$codCancelCount", 0] },
-          codBlockedAt: 1,
-        },
-      },
+      { $match: { _id: new mongoose.Types.ObjectId(id), role: { $in: ["user", "customer"] } } },
+      { $lookup: { from: "orders", localField: "_id", foreignField: "customer", as: "userOrders" } },
+      { $project: { id: { $toString: "$_id" }, name: { $ifNull: ["$name", "Unnamed Customer"] }, businessName: { $ifNull: ["$businessName", ""] }, contactPerson: { $ifNull: ["$contactPerson", ""] }, email: 1, phone: 1, joinedDate: "$createdAt", status: { $cond: [{ $eq: ["$isActive", false] }, "inactive", "active"] }, totalOrders: { $size: "$userOrders" }, totalSpent: { $sum: "$userOrders.pricing.total" }, lastOrderDate: { $max: "$userOrders.createdAt" }, avatar: { $concat: ["https://api.dicebear.com/7.x/avataaars/svg?seed=", { $ifNull: ["$name", "Customer"] }] }, addresses: { $ifNull: ["$addresses", []] }, codBlocked: { $ifNull: ["$codBlocked", false] }, codCancelCount: { $ifNull: ["$codCancelCount", 0] }, codBlockedAt: 1 } },
     ]);
-
-    if (!user || user.length === 0) {
-      return handleResponse(res, 404, "Customer not found");
-    }
-
-    // Fetch recent orders for the timeline
-    const recentOrders = await Order.find({ customer: id })
-      .sort({ createdAt: -1 })
-      .limit(10)
-      .populate("items.product", "name mainImage");
-
+    if (!user || user.length === 0) return handleResponse(res, 404, "Customer not found");
+    const recentOrders = await Order.find({ customer: id }).sort({ createdAt: -1 }).limit(10).populate("items.product", "name mainImage");
     const u = user[0];
-    const addresses = Array.isArray(u.addresses) ? u.addresses : [];
-    const responseData = {
-      ...u,
-      addresses,
-      recentOrders: recentOrders.map((o) => ({
-        id: o.orderId,
-        _id: o._id,
-        itemsCount: o.items.length,
-        amount: o.pricing.total,
-        date: o.createdAt,
-        status: o.status,
-      })),
-    };
-
-    return handleResponse(
-      res,
-      200,
-      "Customer details fetched successfully",
-      responseData,
-    );
+    const responseData = { ...u, addresses: Array.isArray(u.addresses) ? u.addresses : [], recentOrders: recentOrders.map((o) => ({ id: o.orderId, _id: o._id, itemsCount: o.items.length, amount: o.pricing.total, date: o.createdAt, status: o.status })) };
+    return handleResponse(res, 200, "Customer details fetched successfully", responseData);
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
 
 /* ===============================
-   GET ALL SELLERS (Admin) – for offer sections etc.
+   GET ALL SELLERS
 ================================ */
 export const getSellers = async (req, res) => {
   try {
     const { verified } = req.query;
     let query = {};
-
-    // Fail-safe handling for verified parameter (handles string and boolean)
-    if (verified === "true" || verified === true) {
-      query.isVerified = true;
-    } else if (verified === "false" || verified === false) {
-      query.isVerified = false;
-    }
-
-    console.log("Fetching sellers with query:", query);
-
-    const sellers = await Seller.find(query)
-      .select("-password -__v") // Get everything except sensitive info
-      .sort({ createdAt: -1 })
-      .lean();
-
-    console.log(`Found ${sellers.length} sellers`);
-
-    return handleResponse(res, 200, "Sellers fetched", {
-      items: sellers,
-      total: sellers.length,
-    });
+    if (verified === "true" || verified === true) query.isVerified = true;
+    else if (verified === "false" || verified === false) query.isVerified = false;
+    const sellers = await Seller.find(query).select("-password -__v").sort({ createdAt: -1 }).lean();
+    return handleResponse(res, 200, "Sellers fetched", { items: sellers, total: sellers.length });
   } catch (error) {
-    console.error("getSellers error:", error);
     return handleResponse(res, 500, error.message);
   }
 };
 
 /* ===============================
-   GET SELLER BY ID (Admin)
+   GET SELLER BY ID
 ================================ */
 export const getSellerById = async (req, res) => {
   try {
     const { id } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-        return handleResponse(res, 400, "Invalid seller ID");
-    }
-
+    if (!mongoose.Types.ObjectId.isValid(id)) return handleResponse(res, 400, "Invalid seller ID");
     const seller = await Seller.findById(id).lean();
-
-    if (!seller) {
-      return handleResponse(res, 404, "Seller not found");
-    }
-
-    // Fetch stats for the detail view
+    if (!seller) return handleResponse(res, 404, "Seller not found");
     const [totalOrders, totalRevenue, recentOrders] = await Promise.all([
       Order.countDocuments({ seller: id }),
-      Order.aggregate([
-        { $match: { seller: new mongoose.Types.ObjectId(id), status: "delivered" } },
-        { $group: { _id: null, total: { $sum: "$pricing.total" } } }
-      ]),
-      Order.find({ seller: id })
-        .sort({ createdAt: -1 })
-        .limit(10)
-        .populate("customer", "name phone")
+      Order.aggregate([{ $match: { seller: new mongoose.Types.ObjectId(id), status: "delivered" } }, { $group: { _id: null, total: { $sum: "$pricing.total" } } }]),
+      Order.find({ seller: id }).sort({ createdAt: -1 }).limit(10).populate("customer", "name phone")
     ]);
-
-    const stats = {
-      totalOrders,
-      totalRevenue: totalRevenue[0]?.total || 0,
-      recentOrders: recentOrders.map(o => ({
-        id: o.orderId,
-        customer: o.customer?.name || "Guest",
-        status: o.status,
-        amount: o.pricing.total,
-        date: o.createdAt
-      }))
-    };
-
-    return handleResponse(res, 200, "Seller details fetched", {
-      ...seller,
-      stats
-    });
+    const stats = { totalOrders, totalRevenue: totalRevenue[0]?.total || 0, recentOrders: recentOrders.map(o => ({ id: o.orderId, customer: o.customer?.name || "Guest", status: o.status, amount: o.pricing.total, date: o.createdAt })) };
+    return handleResponse(res, 200, "Seller details fetched", { ...seller, stats });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
 
-
 /* ===============================
-   GET COD CUSTOMERS (Admin)
+   GET COD CUSTOMERS
 ================================ */
 export const getCodCustomers = async (req, res) => {
   try {
-    const { page, limit, skip } = getPagination(req, {
-      defaultLimit: 25,
-      maxLimit: 200,
-    });
+    const { page, limit, skip } = getPagination(req, { defaultLimit: 25, maxLimit: 200 });
     const search = String(req.query.search || "").trim();
     const status = String(req.query.status || "all").toLowerCase();
-
-    const match = {
-      role: { $in: ["user", "customer"] },
-    };
-    if (status === "blocked") {
-      match.codBlocked = true;
-    } else if (status === "eligible") {
-      match.codBlocked = { $ne: true };
-    }
-    if (search) {
-      match.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-        { phone: { $regex: search, $options: "i" } },
-        { businessName: { $regex: search, $options: "i" } },
-      ];
-    }
-
-    const [items, total] = await Promise.all([
-      User.find(match)
-        .select(
-          "_id name businessName contactPerson email phone isActive codBlocked codCancelCount codBlockedAt createdAt",
-        )
-        .sort({ codBlocked: -1, codCancelCount: -1, createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      User.countDocuments(match),
-    ]);
-
-    return handleResponse(res, 200, "COD customers fetched", {
-      items,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit) || 1,
-    });
+    const match = { role: { $in: ["user", "customer"] } };
+    if (status === "blocked") match.codBlocked = true;
+    else if (status === "eligible") match.codBlocked = { $ne: true };
+    if (search) match.$or = [{ name: { $regex: search, $options: "i" } }, { email: { $regex: search, $options: "i" } }, { phone: { $regex: search, $options: "i" } }, { businessName: { $regex: search, $options: "i" } }];
+    const [items, total] = await Promise.all([User.find(match).select("_id name businessName contactPerson email phone isActive codBlocked codCancelCount codBlockedAt createdAt").sort({ codBlocked: -1, codCancelCount: -1, createdAt: -1 }).skip(skip).limit(limit).lean(), User.countDocuments(match)]);
+    return handleResponse(res, 200, "COD customers fetched", { items, page, limit, total, totalPages: Math.ceil(total / limit) || 1 });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
 
 /* ===============================
-   UPDATE CUSTOMER COD POLICY (Admin)
+   UPDATE CUSTOMER COD POLICY
 ================================ */
 export const updateCustomerCodPolicy = async (req, res) => {
   try {
     const { id } = req.params;
     const { codBlocked, resetCancelCount, codCancelCount } = req.body || {};
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return handleResponse(res, 400, "Invalid customer id");
-    }
-
+    if (!mongoose.Types.ObjectId.isValid(id)) return handleResponse(res, 400, "Invalid customer id");
     const customer = await User.findById(id);
-    if (!customer || !["user", "customer"].includes(String(customer.role || ""))) {
-      return handleResponse(res, 404, "Customer not found");
-    }
-
-    if (typeof codBlocked === "boolean") {
-      customer.codBlocked = codBlocked;
-      customer.codBlockedAt = codBlocked ? new Date() : null;
-    }
-    if (resetCancelCount === true) {
-      customer.codCancelCount = 0;
-    }
-    if (codCancelCount !== undefined && Number.isFinite(Number(codCancelCount))) {
-      customer.codCancelCount = Math.max(0, Math.floor(Number(codCancelCount)));
-    }
-
+    if (!customer || !["user", "customer"].includes(String(customer.role || ""))) return handleResponse(res, 404, "Customer not found");
+    if (typeof codBlocked === "boolean") { customer.codBlocked = codBlocked; customer.codBlockedAt = codBlocked ? new Date() : null; }
+    if (resetCancelCount === true) customer.codCancelCount = 0;
+    if (codCancelCount !== undefined && Number.isFinite(Number(codCancelCount))) customer.codCancelCount = Math.max(0, Math.floor(Number(codCancelCount)));
     await customer.save();
-
-    return handleResponse(res, 200, "Customer COD policy updated", {
-      _id: customer._id,
-      codBlocked: customer.codBlocked,
-      codCancelCount: customer.codCancelCount,
-      codBlockedAt: customer.codBlockedAt || null,
-    });
+    return handleResponse(res, 200, "Customer COD policy updated", { _id: customer._id, codBlocked: customer.codBlocked, codCancelCount: customer.codCancelCount, codBlockedAt: customer.codBlockedAt || null });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
@@ -1417,75 +715,26 @@ export const updateCustomerCodPolicy = async (req, res) => {
 ================================ */
 export const createSellerByAdmin = async (req, res) => {
   try {
-    const {
-      name,
-      shopName,
-      email,
-      phone,
-      password,
-      lat,
-      lng,
-      radius,
-      isVerified,
-      isActive,
-    } = req.body;
-
-    if (!name || !shopName || !email || !phone || !password) {
-      return handleResponse(
-        res,
-        400,
-        "name, shopName, email, phone and password are required",
-      );
-    }
-
+    const { name, shopName, email, phone, password, lat, lng, radius, isVerified, isActive } = req.body;
+    if (!name || !shopName || !email || !phone || !password) return handleResponse(res, 400, "name, shopName, email, phone and password are required");
     const existing = await Seller.findOne({ $or: [{ email }, { phone }] }).lean();
-    if (existing) {
-      return handleResponse(
-        res,
-        400,
-        "Seller with this email or phone already exists",
-      );
-    }
-
-    const sellerData = {
-      name: String(name).trim(),
-      shopName: String(shopName).trim(),
-      email: String(email).trim().toLowerCase(),
-      phone: String(phone).trim(),
-      password: String(password),
-      isVerified: typeof isVerified === "boolean" ? isVerified : true,
-      isActive: typeof isActive === "boolean" ? isActive : true,
-    };
-
+    if (existing) return handleResponse(res, 400, "Seller with this email or phone already exists");
+    const sellerData = { name: String(name).trim(), shopName: String(shopName).trim(), email: String(email).trim().toLowerCase(), phone: String(phone).trim(), password: String(password), isVerified: typeof isVerified === "boolean" ? isVerified : true, isActive: typeof isActive === "boolean" ? isActive : true };
     if (lat !== undefined && lng !== undefined) {
-      const parsedLat = Number(lat);
-      const parsedLng = Number(lng);
-      if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90) {
-        return handleResponse(res, 400, "Invalid latitude");
-      }
-      if (!Number.isFinite(parsedLng) || parsedLng < -180 || parsedLng > 180) {
-        return handleResponse(res, 400, "Invalid longitude");
-      }
-      sellerData.location = {
-        type: "Point",
-        coordinates: [parsedLng, parsedLat],
-      };
+      const parsedLat = Number(lat); const parsedLng = Number(lng);
+      if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90) return handleResponse(res, 400, "Invalid latitude");
+      if (!Number.isFinite(parsedLng) || parsedLng < -180 || parsedLng > 180) return handleResponse(res, 400, "Invalid longitude");
+      sellerData.location = { type: "Point", coordinates: [parsedLng, parsedLat] };
     }
-
     if (radius !== undefined) {
       const parsedRadius = Number(radius);
-      if (!Number.isFinite(parsedRadius) || parsedRadius < 1 || parsedRadius > 100) {
-        return handleResponse(res, 400, "Radius must be between 1 and 100 km");
-      }
+      if (!Number.isFinite(parsedRadius) || parsedRadius < 1 || parsedRadius > 100) return handleResponse(res, 400, "Radius must be between 1 and 100 km");
       sellerData.serviceRadius = parsedRadius;
     }
-
     const seller = await Seller.create(sellerData);
     return handleResponse(res, 201, "Seller created successfully", seller);
   } catch (error) {
-    if (error?.code === 11000) {
-      return handleResponse(res, 400, "Email or phone already in use");
-    }
+    if (error?.code === 11000) return handleResponse(res, 400, "Email or phone already in use");
     return handleResponse(res, 500, error.message);
   }
 };
@@ -1496,63 +745,31 @@ export const createSellerByAdmin = async (req, res) => {
 export const updateSellerByAdmin = async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      name,
-      shopName,
-      email,
-      phone,
-      password,
-      lat,
-      lng,
-      radius,
-      isVerified,
-      isActive,
-    } = req.body;
-
+    const { name, shopName, email, phone, password, lat, lng, radius, isVerified, isActive } = req.body;
     const seller = await Seller.findById(id);
-    if (!seller) {
-      return handleResponse(res, 404, "Seller not found");
-    }
-
+    if (!seller) return handleResponse(res, 404, "Seller not found");
     if (name !== undefined) seller.name = String(name).trim();
     if (shopName !== undefined) seller.shopName = String(shopName).trim();
     if (email !== undefined) seller.email = String(email).trim().toLowerCase();
     if (phone !== undefined) seller.phone = String(phone).trim();
-    if (password !== undefined && String(password).trim()) {
-      seller.password = String(password);
-    }
+    if (password !== undefined && String(password).trim()) seller.password = String(password);
     if (typeof isVerified === "boolean") seller.isVerified = isVerified;
     if (typeof isActive === "boolean") seller.isActive = isActive;
-
     if (lat !== undefined && lng !== undefined) {
-      const parsedLat = Number(lat);
-      const parsedLng = Number(lng);
-      if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90) {
-        return handleResponse(res, 400, "Invalid latitude");
-      }
-      if (!Number.isFinite(parsedLng) || parsedLng < -180 || parsedLng > 180) {
-        return handleResponse(res, 400, "Invalid longitude");
-      }
-      seller.location = {
-        type: "Point",
-        coordinates: [parsedLng, parsedLat],
-      };
+      const parsedLat = Number(lat); const parsedLng = Number(lng);
+      if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90) return handleResponse(res, 400, "Invalid latitude");
+      if (!Number.isFinite(parsedLng) || parsedLng < -180 || parsedLng > 180) return handleResponse(res, 400, "Invalid longitude");
+      seller.location = { type: "Point", coordinates: [parsedLng, parsedLat] };
     }
-
     if (radius !== undefined) {
       const parsedRadius = Number(radius);
-      if (!Number.isFinite(parsedRadius) || parsedRadius < 1 || parsedRadius > 100) {
-        return handleResponse(res, 400, "Radius must be between 1 and 100 km");
-      }
+      if (!Number.isFinite(parsedRadius) || parsedRadius < 1 || parsedRadius > 100) return handleResponse(res, 400, "Radius must be between 1 and 100 km");
       seller.serviceRadius = parsedRadius;
     }
-
     const updated = await seller.save();
     return handleResponse(res, 200, "Seller updated successfully", updated);
   } catch (error) {
-    if (error?.code === 11000) {
-      return handleResponse(res, 400, "Email or phone already in use");
-    }
+    if (error?.code === 11000) return handleResponse(res, 400, "Email or phone already in use");
     return handleResponse(res, 500, error.message);
   }
 };
@@ -1563,16 +780,8 @@ export const updateSellerByAdmin = async (req, res) => {
 export const approveSeller = async (req, res) => {
   try {
     const { id } = req.params;
-    const seller = await Seller.findByIdAndUpdate(
-      id,
-      { isVerified: true, isActive: true },
-      { new: true }
-    );
-
-    if (!seller) {
-      return handleResponse(res, 404, "Seller not found");
-    }
-
+    const seller = await Seller.findByIdAndUpdate(id, { isVerified: true, isActive: true }, { new: true });
+    if (!seller) return handleResponse(res, 404, "Seller not found");
     return handleResponse(res, 200, "Seller approved successfully", seller);
   } catch (error) {
     return handleResponse(res, 500, error.message);
@@ -1585,22 +794,10 @@ export const approveSeller = async (req, res) => {
 export const rejectSeller = async (req, res) => {
   try {
     const { id } = req.params;
-
-    // Cascade delete: Remove seller, their products, and purchase requests
-    const [seller] = await Promise.all([
-      Seller.findByIdAndDelete(id),
-      Product.deleteMany({ sellerId: id }),
-      PurchaseRequest.deleteMany({ sellerId: id })
-    ]);
-
-    if (!seller) {
-      return handleResponse(res, 404, "Seller not found");
-    }
-
+    const [seller] = await Promise.all([Seller.findByIdAndDelete(id), Product.deleteMany({ sellerId: id }), PurchaseRequest.deleteMany({ sellerId: id })]);
+    if (!seller) return handleResponse(res, 404, "Seller not found");
     return handleResponse(res, 200, "Application rejected and all related data removed");
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
 };
-
-

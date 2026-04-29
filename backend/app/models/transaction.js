@@ -4,7 +4,7 @@ const transactionSchema = new mongoose.Schema(
     {
         user: {
             type: mongoose.Schema.Types.ObjectId,
-            required: true,
+            required: false,
             refPath: "userModel",
         },
         userModel: {
@@ -18,7 +18,7 @@ const transactionSchema = new mongoose.Schema(
         },
         type: {
             type: String,
-            enum: ["Order Payment", "Delivery Earning", "Withdrawal", "Refund", "Incentive", "Bonus", "Cash Collection", "Cash Settlement"],
+            enum: ["Order Payment", "Order Sale", "Delivery Earning", "Withdrawal", "Refund", "Incentive", "Bonus", "Cash Collection", "Cash Settlement", "Supply Earning"],
             required: true,
         },
         amount: {

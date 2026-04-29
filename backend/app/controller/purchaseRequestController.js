@@ -9,6 +9,7 @@ import Seller from "../models/seller.js";
 import PickupPartner from "../models/pickupPartner.js";
 import { WORKFLOW_STATUS } from "../constants/orderWorkflow.js";
 import { startHubDeliverySearchAtomic } from "../services/orderWorkflowService.js";
+import Transaction from "../models/transaction.js";
 import handleResponse from "../utils/helper.js";
 import getPagination from "../utils/pagination.js";
 
@@ -579,6 +580,33 @@ export const verifyInward = async (req, res) => {
     pr.status = verified ? "verified" : "cancelled";
     if (notes !== undefined) pr.notes = String(notes || "");
     await pr.save();
+
+    // Financial Settlement: If verified, credit the Seller for the procurement cost
+    if (verified && pr.vendorId) {
+      let totalProcurementCost = 0;
+      if (inward.receivedItems && inward.receivedItems.length > 0) {
+        totalProcurementCost = inward.receivedItems.reduce((acc, item) => {
+          return acc + (Number(item.acceptedQty || 0) * Number(item.purchaseUnitCost || 0));
+        }, 0);
+      }
+
+      if (totalProcurementCost > 0) {
+        await Transaction.create({
+          user: pr.vendorId,
+          userModel: "Seller",
+          order: pr.orderId || undefined,
+          type: "Supply Earning",
+          amount: totalProcurementCost,
+          status: "Settled",
+          reference: `PR-SETTLE-${pr.requestId}`,
+          meta: {
+            purchaseRequestId: pr._id,
+            verifiedAt: new Date(),
+          }
+        });
+        console.log(`[Settlement] Created Supply Earning for Seller ${pr.vendorId}: ₹${totalProcurementCost}`);
+      }
+    }
 
     // If all purchase requests for this order are resolved, move order to packing-ready stage.
     const [parentOrder, siblingRequests] = await Promise.all([

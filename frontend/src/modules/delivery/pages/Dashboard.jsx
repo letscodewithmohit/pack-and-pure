@@ -90,6 +90,10 @@ const Dashboard = () => {
   }, [isOnline]);
 
   const handleOnlineToggle = async () => {
+    if (!user?.isVerified) {
+      toast.error("Your account is pending admin approval.");
+      return;
+    }
     const newStatus = !isOnline;
     try {
       await deliveryApi.updateProfile({ isOnline: newStatus });
@@ -147,6 +151,25 @@ const Dashboard = () => {
           )}
         </div>
       </header>
+
+      {/* Verification Status Banner */}
+      {!user?.isVerified && (
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mx-6 mt-4 p-4 bg-amber-50 border border-amber-200 rounded-3xl flex items-start gap-4 shadow-sm"
+        >
+          <div className="h-10 w-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
+            <AlertCircle className="text-amber-600" size={22} />
+          </div>
+          <div>
+            <h4 className="text-sm font-black text-amber-900 uppercase tracking-tight">Pending Admin Approval</h4>
+            <p className="text-xs text-amber-700 font-medium leading-relaxed">
+              Your documents are currently under review by our operations team. You can explore the app, but you'll be able to accept orders once approved.
+            </p>
+          </div>
+        </motion.div>
+      )}
 
       {/* Online/Offline Toggle */}
       <div className="px-6 py-6">

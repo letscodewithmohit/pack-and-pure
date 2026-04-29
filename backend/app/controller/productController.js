@@ -186,7 +186,7 @@ export const getProducts = async (req, res) => {
 
     const products = await Product.find(query)
       .select(
-        "name slug description price salePrice stock brand weight unit mainImage headerId categoryId subcategoryId sellerId ownerType status isFeatured variants createdAt",
+        "name slug description price salePrice purchasePrice stock brand weight unit mainImage headerId categoryId subcategoryId sellerId ownerType status isFeatured variants createdAt",
       )
       .populate("headerId", "name")
       .populate("categoryId", "name")
@@ -390,7 +390,13 @@ export const createProduct = async (req, res) => {
     // Typecast numbers to ensure database integrity
     if (productData.price) productData.price = Number(productData.price);
     if (productData.salePrice) productData.salePrice = Number(productData.salePrice);
+    if (productData.purchasePrice) productData.purchasePrice = Number(productData.purchasePrice);
     if (productData.stock) productData.stock = Number(productData.stock);
+
+    // If seller is creating, their price is the purchasePrice for the admin
+    if (role !== "admin") {
+      productData.purchasePrice = productData.price || 0;
+    }
 
     // Standardize masterProductId (remove empty strings which cause BSON errors)
     if (productData.masterProductId === "" || productData.masterProductId === "null" || !productData.masterProductId) {
@@ -498,6 +504,7 @@ export const updateProduct = async (req, res) => {
     // Typecast numbers to ensure database integrity
     if (productData.price) productData.price = Number(productData.price);
     if (productData.salePrice) productData.salePrice = Number(productData.salePrice);
+    if (productData.purchasePrice) productData.purchasePrice = Number(productData.purchasePrice);
     if (productData.stock) productData.stock = Number(productData.stock);
 
     // Smart Mapping & Merge Logic: If masterProductId is changed by Admin

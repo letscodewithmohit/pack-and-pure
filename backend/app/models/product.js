@@ -33,6 +33,11 @@ const productSchema = new mongoose.Schema(
             default: 0,
             min: 0,
         },
+        purchasePrice: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
         stock: {
             type: Number,
             required: true,

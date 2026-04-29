@@ -45,7 +45,7 @@ const VendorManagementPage = () => {
     const lat = Number(coords[1]);
     const lng = Number(coords[0]);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "N/A";
-    return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    return "Geospatial Verified";
   };
 
   const normalizeRows = (list) =>

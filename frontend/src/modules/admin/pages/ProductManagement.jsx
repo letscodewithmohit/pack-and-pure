@@ -59,6 +59,7 @@ const ProductManagement = () => {
         description: '',
         price: '',
         salePrice: '',
+        purchasePrice: '',
         stock: '',
         lowStockAlert: 5,
         unit: 'Pieces',
@@ -276,6 +277,7 @@ const ProductManagement = () => {
                 description: String(formData.description || '').trim(),
                 price: Number(finalPrice) || 0,
                 salePrice: Number(finalSalePrice) || 0,
+                purchasePrice: Number(formData.purchasePrice) || 0,
                 stock: Number(finalStock) || 0,
                 lowStockAlert: Number(formData.lowStockAlert) || 5,
                 unit: formData.unit || 'Pieces',
@@ -303,6 +305,7 @@ const ProductManagement = () => {
                     name: v.name || 'Default',
                     price: Number(v.price) || 0,
                     salePrice: Number(v.salePrice) || 0,
+                    purchasePrice: Number(v.purchasePrice || formData.purchasePrice) || 0,
                     stock: Number(v.stock) || 0,
                     sku: v.sku || ''
                 }));
@@ -379,8 +382,7 @@ const ProductManagement = () => {
                 slug: item.slug || '',
                 sku: item.sku || '',
                 description: item.description || '',
-                price: item.price || '',
-                salePrice: item.salePrice || item.discountPrice || '',
+                purchasePrice: item.purchasePrice || item.price || '',
                 stock: item.stock || '',
                 lowStockAlert: item.lowStockAlert || 5,
                 unit: item.unit || 'Pieces',
@@ -412,7 +414,7 @@ const ProductManagement = () => {
         } else {
             setFormData({
                 name: '', slug: '', sku: '', description: '', price: 0,
-                salePrice: 0, stock: 0, lowStockAlert: 5, unit: 'Pieces',
+                salePrice: 0, purchasePrice: 0, stock: 0, lowStockAlert: 5, unit: 'Pieces',
                 header: '', categoryId: '', subcategoryId: '', status: 'active',
                 isFeatured: false, tags: '', weight: '', brand: '',
                 masterProductId: '',
@@ -465,14 +467,27 @@ const ProductManagement = () => {
                     </h1>
                     <p className="ds-description mt-0.5">Track your items, prices, and how many are left in stock.</p>
                 </div>
-                <button
-                    type="button"
-                    onClick={() => openModal()}
-                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-white shadow-sm hover:bg-slate-800"
-                >
-                    <HiOutlinePlus className="h-4 w-4" />
-                    {activeTab === 'master' ? 'Add Master Product' : 'Add Seller Product'}
-                </button>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => {
+                            setPage(1);
+                            fetchProducts(1);
+                            toast.success("Product list synchronized");
+                        }}
+                        className="p-2.5 bg-white ring-1 ring-slate-200 text-slate-400 hover:text-primary hover:ring-primary/30 rounded-xl transition-all shadow-sm active:scale-95"
+                        title="Refresh Data"
+                    >
+                        <HiOutlineArrowPath className={cn("h-4 w-4", isLoading && "animate-spin")} />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => openModal()}
+                        className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-2.5 text-xs font-black uppercase tracking-widest text-white shadow-xl hover:bg-black hover:-translate-y-0.5 transition-all"
+                    >
+                        <HiOutlinePlus className="h-4 w-4" />
+                        {activeTab === 'master' ? 'Add Master Product' : 'Add Seller Product'}
+                    </button>
+                </div>
             </div>
 
             {/* Tab Navigation */}
@@ -597,6 +612,7 @@ const ProductManagement = () => {
                                 <th className="px-6 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Category</th>
                                 <th className="px-6 py-3 text-left text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Subcategory</th>
                                 <th className="px-6 py-3 text-center text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Price</th>
+                                <th className="px-6 py-3 text-center text-[10px] font-black text-emerald-500 uppercase tracking-widest">Profit</th>
                                 <th className="px-6 py-3 text-center text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Stock</th>
                                 <th className="px-6 py-3 text-center text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Status</th>
                                 <th className="px-6 py-3 text-right text-[10px] font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
@@ -673,6 +689,18 @@ const ProductManagement = () => {
                                         <div className="flex flex-col items-center">
                                             <span className={cn("text-xs font-bold", p.salePrice > 0 ? "text-slate-400 line-through scale-90" : "text-slate-900")}>₹{p.price}</span>
                                             {p.salePrice > 0 && <span className="text-xs font-bold text-emerald-600">₹{p.salePrice}</span>}
+                                        </div>
+                                    </td>
+
+                                    {/* Profit Column */}
+                                    <td className="px-6 py-4 text-center">
+                                        <div className="inline-flex flex-col items-center px-2 py-0.5 bg-emerald-50 rounded-lg border border-emerald-100">
+                                            <span className="text-[10px] font-black text-emerald-700">₹{(Number(p.price || 0) - Number(p.purchasePrice || 0)).toLocaleString()}</span>
+                                            {Number(p.purchasePrice) > 0 && (
+                                                <span className="text-[8px] font-bold text-emerald-500">
+                                                    {(((Number(p.price || 0) - Number(p.purchasePrice || 0)) / Number(p.purchasePrice || 1)) * 100).toFixed(0)}%
+                                                </span>
+                                            )}
                                         </div>
                                     </td>
 
@@ -1176,7 +1204,26 @@ const ProductManagement = () => {
                                                                 />
                                                             </div>
                                                             <div className="col-span-3 lg:col-span-2 space-y-1">
-                                                                <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Price (MRP)</label>
+                                                                <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Vendor Cost</label>
+                                                                <input
+                                                                    type="number"
+                                                                    value={variant.purchasePrice || formData.purchasePrice}
+                                                                    readOnly={editingItem?.ownerType === 'seller'}
+                                                                    onChange={(e) => {
+                                                                        const val = e.target.value;
+                                                                        const newVariants = [...formData.variants];
+                                                                        newVariants[idx].purchasePrice = val;
+                                                                        setFormData({ ...formData, variants: newVariants });
+                                                                    }}
+                                                                    placeholder="0.00"
+                                                                    className={cn(
+                                                                        "w-full px-3 py-2.5 ring-1 ring-slate-200 border-none rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-primary/10",
+                                                                        editingItem?.ownerType === 'seller' ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-white"
+                                                                    )}
+                                                                />
+                                                            </div>
+                                                            <div className="col-span-3 lg:col-span-2 space-y-1">
+                                                                <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Sell Price (MRP)</label>
                                                                 <input
                                                                     type="number"
                                                                     value={variant.price}
@@ -1193,21 +1240,15 @@ const ProductManagement = () => {
                                                                 />
                                                             </div>
                                                             <div className="col-span-3 lg:col-span-2 space-y-1">
-                                                                <label className="text-[8px] font-bold text-emerald-500 uppercase tracking-widest ml-1">Sale Price</label>
-                                                                <input
-                                                                    type="number"
-                                                                    value={variant.salePrice}
-                                                                    onChange={(e) => {
-                                                                        const val = e.target.value;
-                                                                        const newVariants = [...formData.variants];
-                                                                        newVariants[idx].salePrice = val;
-                                                                        const update = { ...formData, variants: newVariants };
-                                                                        if (idx === 0) update.salePrice = val;
-                                                                        setFormData(update);
-                                                                    }}
-                                                                    placeholder="0.00"
-                                                                    className="w-full px-3 py-2.5 bg-emerald-50/50 ring-1 ring-emerald-100 border-none rounded-xl text-xs font-bold text-emerald-700 outline-none focus:ring-2 focus:ring-emerald-200"
-                                                                />
+                                                                <label className="text-[8px] font-bold text-emerald-500 uppercase tracking-widest ml-1">Profit</label>
+                                                                <div className="w-full px-3 py-2.5 bg-emerald-50 ring-1 ring-emerald-100 rounded-xl text-xs font-black text-emerald-700 flex items-center justify-between">
+                                                                    <span>₹{(Number(variant.price || 0) - Number(variant.purchasePrice || formData.purchasePrice || 0)).toLocaleString()}</span>
+                                                                    {Number(variant.purchasePrice || formData.purchasePrice) > 0 && (
+                                                                        <span className="text-[8px] bg-emerald-200/50 px-1 rounded">
+                                                                            {(((Number(variant.price || 0) - Number(variant.purchasePrice || formData.purchasePrice || 0)) / Number(variant.purchasePrice || formData.purchasePrice || 1)) * 100).toFixed(0)}%
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                             <div className="col-span-2 lg:col-span-2 space-y-1">
                                                                 <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">Stock</label>
