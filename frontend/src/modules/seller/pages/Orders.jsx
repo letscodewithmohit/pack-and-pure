@@ -88,6 +88,7 @@ const Orders = () => {
             const formattedOrders = (rawOrders || []).map(order => ({
                 id: order.orderId,
                 _id: order._id,
+                hubFlowEnabled: Boolean(order.hubFlowEnabled),
                 customer: {
                     name: order.customer?.name || 'Unknown',
                     phone: order.customer?.phone || '',
@@ -202,6 +203,11 @@ const Orders = () => {
     };
 
     const handleStatusUpdate = async (orderId, newStatus) => {
+        const target = (Array.isArray(orders) ? orders : []).find(o => o.id === orderId);
+        if (target?.hubFlowEnabled) {
+            showToast("Hub orders are managed via Purchase Requests. You cannot update customer order status here.", "warning");
+            return;
+        }
         try {
             await sellerApi.updateOrderStatus(orderId, { status: newStatus.toLowerCase() });
             showToast(`Order status updated to ${newStatus}`, "success");
@@ -470,8 +476,11 @@ const Orders = () => {
                                                         value={order.status}
                                                         onChange={(e) => handleStatusUpdate(order.id, e.target.value)}
                                                         onClick={(e) => e.stopPropagation()}
+                                                        disabled={order.hubFlowEnabled}
+                                                        title={order.hubFlowEnabled ? "Hub order: manage via Purchase Requests" : ""}
                                                         className={cn(
-                                                            "w-full min-w-[100px] text-[10px] pl-2 pr-6 py-1.5 rounded-lg font-black uppercase cursor-pointer appearance-none border outline-none",
+                                                            "w-full min-w-[100px] text-[10px] pl-2 pr-6 py-1.5 rounded-lg font-black uppercase appearance-none border outline-none",
+                                                            order.hubFlowEnabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer",
                                                             order.status === 'pending' ? "bg-amber-100 text-amber-700" :
                                                                 order.status === 'delivered' ? "bg-emerald-100 text-emerald-700" :
                                                                     order.status === 'cancelled' ? "bg-rose-100 text-rose-700" : "bg-slate-100 text-slate-700"
@@ -556,8 +565,11 @@ const Orders = () => {
                                                             <select
                                                                 value={order.status}
                                                                 onChange={(e) => handleStatusUpdate(order.id, e.target.value)}
+                                                                disabled={order.hubFlowEnabled}
+                                                                title={order.hubFlowEnabled ? "Hub order: manage via Purchase Requests" : ""}
                                                                 className={cn(
-                                                                    "w-full text-[10px] pl-2.5 pr-8 py-1.5 rounded-full font-black uppercase tracking-widest cursor-pointer appearance-none focus:ring-2 focus:ring-offset-1 transition-all border-none outline-none shadow-sm",
+                                                                    "w-full text-[10px] pl-2.5 pr-8 py-1.5 rounded-full font-black uppercase tracking-widest appearance-none focus:ring-2 focus:ring-offset-1 transition-all border-none outline-none shadow-sm",
+                                                                    order.hubFlowEnabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer",
                                                                     order.status === 'pending' ? "bg-amber-100 text-amber-700 focus:ring-amber-200" :
                                                                         order.status === 'confirmed' ? "bg-blue-100 text-blue-700 focus:ring-blue-200" :
                                                                             order.status === 'packed' ? "bg-indigo-100 text-indigo-700 focus:ring-indigo-200" :
@@ -585,7 +597,7 @@ const Orders = () => {
                                                             >
                                                                 <HiOutlineEye className="h-4 w-4" />
                                                             </button>
-                                                            {order.status === 'Pending' && (
+                                                            {!order.hubFlowEnabled && order.status === 'Pending' && (
                                                                 <>
                                                                     <button
                                                                         onClick={(e) => {
@@ -865,7 +877,8 @@ const Orders = () => {
                                                     value={selectedOrder.status.toLowerCase()}
                                                     onChange={(e) => handleStatusUpdate(selectedOrder.id, e.target.value)}
                                                     className={cn(
-                                                        "w-full text-xs pl-3 pr-8 py-2 rounded-xl font-black uppercase tracking-wider border appearance-none cursor-pointer focus:ring-2 focus:ring-offset-1 transition-all outline-none shadow-sm",
+                                                        "w-full text-xs pl-3 pr-8 py-2 rounded-xl font-black uppercase tracking-wider border appearance-none focus:ring-2 focus:ring-offset-1 transition-all outline-none shadow-sm",
+                                                        selectedOrder.hubFlowEnabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer",
                                                         getStatusColor(selectedOrder.status) === 'warning' ? "bg-amber-100 text-amber-700 focus:ring-amber-200" :
                                                             getStatusColor(selectedOrder.status) === 'info' ? "bg-blue-100 text-blue-700 focus:ring-blue-200" :
                                                                 getStatusColor(selectedOrder.status) === 'primary' ? "bg-indigo-100 text-indigo-700 focus:ring-indigo-200" :
@@ -874,6 +887,8 @@ const Orders = () => {
                                                                             getStatusColor(selectedOrder.status) === 'error' ? "bg-rose-100 text-rose-700 focus:ring-rose-200" :
                                                                                 "bg-slate-100 text-slate-700 focus:ring-slate-200"
                                                     )}
+                                                    disabled={selectedOrder.hubFlowEnabled}
+                                                    title={selectedOrder.hubFlowEnabled ? "Hub order: manage via Purchase Requests" : ""}
                                                 >
                                                     <option value="pending">Pending</option>
                                                     <option value="confirmed">Confirmed</option>

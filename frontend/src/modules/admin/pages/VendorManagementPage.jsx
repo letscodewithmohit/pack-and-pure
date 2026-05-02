@@ -66,7 +66,13 @@ const VendorManagementPage = () => {
     try {
       setLoading(true);
       const res = await adminApi.getSellers();
-      const payload = res?.data?.result || res?.data?.results || [];
+      let payload = res?.data?.result || res?.data?.results || [];
+      
+      // If payload is an object containing 'items', extract it
+      if (payload && typeof payload === 'object' && !Array.isArray(payload) && payload.items) {
+        payload = payload.items;
+      }
+      
       setRows(normalizeRows(payload));
     } catch (error) {
       setInfoMessage(error?.response?.data?.message || "Failed to load sellers.");

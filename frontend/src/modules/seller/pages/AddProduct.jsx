@@ -121,47 +121,63 @@ const AddProduct = () => {
     try {
       const data = new FormData();
 
-      // Basic fields
-      data.append("name", formData.name);
-      data.append("slug", formData.slug);
-      data.append("sku", formData.sku);
-      data.append("description", formData.description);
-      data.append("brand", formData.brand);
-      data.append("weight", formData.weight);
-      data.append("status", formData.status);
+      // Backend requires root-level `price` and `stock`. In this UI, sellers primarily edit the main variant.
+      // Sync root values from the first variant to avoid server-side validation errors.
+      const resolvedPrice =
+        formData.price !== undefined && formData.price !== null && String(formData.price).trim() !== ""
+          ? Number(formData.price)
+          : Number(firstVariant.price);
+      const resolvedSalePrice =
+        formData.salePrice !== undefined && formData.salePrice !== null && String(formData.salePrice).trim() !== ""
+          ? Number(formData.salePrice)
+          : firstVariant.salePrice !== undefined && firstVariant.salePrice !== null && String(firstVariant.salePrice).trim() !== ""
+            ? Number(firstVariant.salePrice)
+            : 0;
+      const resolvedStock =
+        formData.stock !== undefined && formData.stock !== null && String(formData.stock).trim() !== ""
+          ? Number(formData.stock)
+          : Number(firstVariant.stock);
+      
+      const fields = [
+        'name', 'slug', 'sku', 'description', 'price', 'salePrice', 
+        'stock', 'lowStockAlert', 'unit', 'tags', 'weight', 
+        'brand', 'shelfLife', 'countryOfOrigin', 'fssaiLicense', 
+        'customerCare', 'masterProductId', 'status'
+      ];
 
-      // Map top-level price/stock from first variant for indexing/listing
-      data.append("price", firstVariant.price);
-      data.append("salePrice", firstVariant.salePrice || 0);
-      data.append("stock", firstVariant.stock);
+      fields.forEach(field => {
+        if (formData[field] !== undefined && formData[field] !== null) {
+          data.append(field, formData[field]);
+        }
+      });
 
-      // Category IDs
+      // SYNC: Map seller's price to purchasePrice (SOP)
+      data.set("price", Number.isFinite(resolvedPrice) ? resolvedPrice : 0);
+      data.set("salePrice", Number.isFinite(resolvedSalePrice) ? resolvedSalePrice : 0);
+      data.set("stock", Number.isFinite(resolvedStock) ? resolvedStock : 0);
+      data.set("purchasePrice", Number.isFinite(resolvedPrice) ? resolvedPrice : 0);
+
       data.append("headerId", formData.header);
       data.append("categoryId", formData.category);
       data.append("subcategoryId", formData.subcategory);
+      
+      // JSON strings - Ensure variants have purchasePrice
+      const syncedVariants = (formData.variants || []).map(v => ({
+        ...v,
+        purchasePrice: Number(v.price || resolvedPrice) || 0,
+        // Keep v.price as placeholder for UI
+      }));
+      data.append("variants", JSON.stringify(syncedVariants));
 
-      // Tags
-      data.append("tags", formData.tags);
-
-      // Images
       if (formData.mainImageFile) {
         data.append("mainImage", formData.mainImageFile);
       }
-
+      
       if (formData.galleryFiles && formData.galleryFiles.length > 0) {
-        formData.galleryFiles.forEach(file => {
+        formData.galleryFiles.forEach((file) => {
           data.append("galleryImages", file);
         });
       }
-
-      // Variants
-      data.append("variants", JSON.stringify(formData.variants));
-
-      if (formData.masterProductId) {
-        data.append("masterProductId", formData.masterProductId);
-      }
-
-      data.append("unit", formData.unit);
       
       await sellerApi.createProduct(data);
       toast.success("Product saved successfully!");
@@ -581,7 +597,7 @@ const AddProduct = () => {
                     </div>
                     <div className="col-span-6 md:col-span-2 space-y-1">
                       <label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">
-                        Price
+                        Supply Price
                       </label>
                       <input
                         type="number"
@@ -589,6 +605,7 @@ const AddProduct = () => {
                         onChange={(e) => {
                           const newVariants = [...formData.variants];
                           newVariants[index].price = e.target.value;
+                          newVariants[index].salePrice = e.target.value;
                           setFormData({ ...formData, variants: newVariants });
                         }}
                         placeholder="500"
@@ -596,19 +613,15 @@ const AddProduct = () => {
                       />
                     </div>
                     <div className="col-span-6 md:col-span-2 space-y-1">
-                      <label className="text-[8px] font-bold text-emerald-500 uppercase tracking-widest ml-1">
-                        Sale
+                      <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">
+                        Sale (auto)
                       </label>
                       <input
                         type="number"
                         value={variant.salePrice}
-                        onChange={(e) => {
-                          const newVariants = [...formData.variants];
-                          newVariants[index].salePrice = e.target.value;
-                          setFormData({ ...formData, variants: newVariants });
-                        }}
+                        readOnly
                         placeholder="450"
-                        className="w-full px-3 py-2 bg-emerald-50 ring-1 ring-emerald-100 border-none rounded-xl text-xs font-bold text-emerald-700 outline-none focus:ring-2 focus:ring-emerald-200"
+                        className="w-full px-3 py-2 bg-slate-50 ring-1 ring-slate-100 border-none rounded-xl text-xs font-bold text-slate-500 outline-none cursor-not-allowed"
                       />
                     </div>
                     <div className="col-span-6 md:col-span-2 space-y-1">

@@ -15,11 +15,24 @@ export const adjustStock = async (req, res) => {
             return handleResponse(res, 404, "Product not found or unauthorized");
         }
 
-        const qtyChange = Number(quantity);
-        const finalStock = type === 'Restock' ? product.stock + qtyChange : product.stock - qtyChange;
+        const qtyChange = Math.abs(Number(quantity || 0));
+        if (qtyChange <= 0) return handleResponse(res, 400, "Quantity must be greater than zero");
+
+        let finalStock = product.stock;
+        if (type === 'Restock') {
+            finalStock += qtyChange;
+        } else {
+            finalStock -= qtyChange;
+        }
 
         if (finalStock < 0) {
             return handleResponse(res, 400, "Stock cannot be negative");
+        }
+
+        // If product has variants, seller should technically update variants.
+        // But for now, we allow main stock update if it's a simple product.
+        if (product.variants && product.variants.length > 0) {
+            return handleResponse(res, 400, "This product has variants. Please update stock for specific variants.");
         }
 
         // 1. Update Product Stock
@@ -30,7 +43,7 @@ export const adjustStock = async (req, res) => {
         const historyEntry = new StockHistory({
             product: productId,
             seller: sellerId,
-            type, // Restock, Correction
+            type: type === 'Restock' ? 'Restock' : 'Correction',
             quantity: type === 'Restock' ? qtyChange : -qtyChange,
             note: note || `Manual ${type} adjustment`
         });

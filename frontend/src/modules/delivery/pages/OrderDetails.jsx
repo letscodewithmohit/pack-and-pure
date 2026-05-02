@@ -724,7 +724,7 @@ const OrderDetails = () => {
               <h3 className="font-bold text-lg">Generate Delivery OTP</h3>
             </div>
             <p className="text-gray-500 text-sm mb-4">
-              Slide to generate an OTP for the customer. You must be within 0-120 meters of the delivery location.
+              Slide to generate an OTP for the customer. You must be within reach of the delivery location.
             </p>
             <DeliverySlideButton orderId={orderId} onSuccess={handleOtpGenerated} onError={handleOtpGenerationError} />
           </Card>

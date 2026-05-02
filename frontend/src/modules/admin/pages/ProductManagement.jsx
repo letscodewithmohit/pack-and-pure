@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import Button from '@shared/components/ui/Button';
 import Card from '@shared/components/ui/Card';
 import Badge from '@shared/components/ui/Badge';
 import { adminApi } from '../services/adminApi';
@@ -48,9 +49,15 @@ const ProductManagement = () => {
 
     const [isProductModalOpen, setIsProductModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+    const [requestData, setRequestData] = useState({ productId: '', vendorId: '', productName: '', quantity: 1, notes: '' });
     const [itemToDelete, setItemToDelete] = useState(null);
     const [editingItem, setEditingItem] = useState(null);
     const [modalTab, setModalTab] = useState('general');
+
+    const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
+    const [approveRow, setApproveRow] = useState(null);
+    const [approvePrice, setApprovePrice] = useState("");
 
     const [formData, setFormData] = useState({
         name: '',
@@ -200,40 +207,6 @@ const ProductManagement = () => {
         return () => clearTimeout(timer);
     }, [searchTerm, filterCategory, filterStatus, pageSize, activeTab]);
 
-    const buildProductFormData = () => {
-        const data = new FormData();
-        data.append('name', formData.name);
-        data.append('slug', formData.slug);
-        data.append('sku', formData.sku);
-        data.append('description', formData.description);
-        data.append('price', Number(formData.price));
-        data.append('salePrice', Number(formData.salePrice) || 0);
-        data.append('stock', Number(formData.stock));
-        data.append('lowStockAlert', Number(formData.lowStockAlert) || 5);
-        data.append('unit', formData.unit);
-        data.append('headerId', formData.header);
-        data.append('categoryId', formData.categoryId);
-        data.append('subcategoryId', formData.subcategoryId);
-        data.append('status', formData.status);
-        data.append('isFeatured', formData.isFeatured);
-        data.append('brand', formData.brand);
-        data.append('weight', formData.weight);
-        data.append('tags', formData.tags);
-        data.append('masterProductId', formData.masterProductId || '');
-        if (formData.customerPrice) {
-            data.append('customerPrice', Number(formData.customerPrice));
-        }
-        data.append('variants', JSON.stringify(formData.variants));
-
-        if (formData.mainImageFile) {
-            data.append('mainImage', formData.mainImageFile);
-        }
-        if (formData.galleryFiles && formData.galleryFiles.length > 0) {
-            formData.galleryFiles.forEach((file) => data.append('galleryImages', file));
-        }
-        return data;
-    };
-
     const handleSave = async () => {
         setIsSaving(true);
         try {
@@ -303,9 +276,9 @@ const ProductManagement = () => {
             if (formData.variants && formData.variants.length > 0) {
                 const cleanVariants = formData.variants.map(v => ({
                     name: v.name || 'Default',
-                    price: Number(v.price) || 0,
+                    price: Number(v.price) || 0, // Customer Selling Price
                     salePrice: Number(v.salePrice) || 0,
-                    purchasePrice: Number(v.purchasePrice || formData.purchasePrice) || 0,
+                    purchasePrice: Number(v.purchasePrice) || Number(formData.purchasePrice) || 0, // Vendor Cost
                     stock: Number(v.stock) || 0,
                     sku: v.sku || ''
                 }));
@@ -345,17 +318,6 @@ const ProductManagement = () => {
         }
     };
 
-    const handleImageChange = (e) => {
-        const files = Array.from(e.target.files);
-        if (files.length + imageFiles.length > 5) {
-            return toast.error('Max 5 images allowed');
-        }
-
-        const newPreviews = files.map(file => URL.createObjectURL(file));
-        setPreviews([...previews, ...newPreviews]);
-        setImageFiles([...imageFiles, ...files]);
-    };
-
     const handleImageUpload = (e, type) => {
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
@@ -375,6 +337,25 @@ const ProductManagement = () => {
         }
     };
 
+    const handleRequestStock = async () => {
+        if (!requestData.quantity || requestData.quantity < 1) {
+            toast.error("Please enter a valid quantity");
+            return;
+        }
+        try {
+            await adminApi.createManualPurchaseRequest({
+                vendorId: requestData.vendorId,
+                productId: requestData.productId,
+                quantity: requestData.quantity,
+                notes: requestData.notes
+            });
+            toast.success(`Purchase request sent to seller for ${requestData.productName}`);
+            setIsRequestModalOpen(false);
+        } catch (error) {
+            toast.error(error.response?.data?.message || "Failed to create purchase request");
+        }
+    };
+
     const openModal = (item = null) => {
         if (item) {
             setFormData({
@@ -382,8 +363,8 @@ const ProductManagement = () => {
                 slug: item.slug || '',
                 sku: item.sku || '',
                 description: item.description || '',
-                purchasePrice: item.purchasePrice || item.price || '',
-                stock: item.stock || '',
+                purchasePrice: item.purchasePrice || (item.ownerType === 'seller' ? item.salePrice : item.price) || 0,
+                stock: item.stock || 0,
                 lowStockAlert: item.lowStockAlert || 5,
                 unit: item.unit || 'Pieces',
                 header: item.headerId?._id || item.headerId || '',
@@ -398,13 +379,20 @@ const ProductManagement = () => {
                 mainImage: item.mainImage || null,
                 galleryImages: item.galleryImages || [],
                 customerPrice: item.masterProductId?.price || item.masterProductId?.salePrice || '',
-                variants: (item.variants && item.variants.length > 0) ? item.variants.map(v => ({ ...v, id: v._id || Date.now() })) : [
+                variants: (item.variants && item.variants.length > 0) ? item.variants.map(v => ({ 
+                    ...v, 
+                    id: v._id || Date.now(),
+                    // Fallback to item stock if variant stock is missing or 0
+                    stock: v.stock || item.stock || 0,
+                    // If seller product, variant price is the vendor cost
+                    price: item.ownerType === 'seller' ? (v.salePrice || v.price) : (v.price || '')
+                })) : [
                     {
                         id: Date.now(),
                         name: 'Default',
-                        price: item.price || '',
+                        price: item.ownerType === 'seller' ? (item.salePrice || item.price) : (item.price || ''),
                         salePrice: item.salePrice || item.discountPrice || '',
-                        stock: item.stock || '',
+                        stock: item.stock || 0,
                         sku: item.sku || ''
                     }
                 ]
@@ -430,6 +418,30 @@ const ProductManagement = () => {
         setImageFiles([]);
         setModalTab('general');
         setIsProductModalOpen(true);
+    };
+
+    const openApproveModal = (row) => {
+        setApproveRow(row);
+        setApprovePrice(String(row.salePrice || row.price || ""));
+        setIsApproveModalOpen(true);
+    };
+
+    const handleQuickApprove = async () => {
+        if (!approveRow) return;
+        try {
+            const data = new FormData();
+            data.append('status', 'active');
+            data.append('customerPrice', Number(approvePrice));
+            data.append('salePrice', Number(approvePrice));
+            data.append('price', Number(approvePrice)); 
+            
+            await adminApi.updateProduct(approveRow._id, data);
+            toast.success(`${approveRow.name} approved and live at ₹${approvePrice}`);
+            setIsApproveModalOpen(false);
+            fetchProducts(page);
+        } catch (error) {
+            toast.error("Approval failed");
+        }
     };
 
     const productsList = Array.isArray(products) ? products : [];
@@ -687,20 +699,40 @@ const ProductManagement = () => {
                                     {/* Price Column */}
                                     <td className="px-6 py-4 text-center">
                                         <div className="flex flex-col items-center">
-                                            <span className={cn("text-xs font-bold", p.salePrice > 0 ? "text-slate-400 line-through scale-90" : "text-slate-900")}>₹{p.price}</span>
-                                            {p.salePrice > 0 && <span className="text-xs font-bold text-emerald-600">₹{p.salePrice}</span>}
+                                            {activeTab === 'seller' ? (
+                                                <div className="flex flex-col items-center">
+                                                    <span className="text-xs font-black text-slate-900">₹{p.purchasePrice || p.price}</span>
+                                                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Vendor Cost</span>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <span className={cn("text-xs font-bold", p.salePrice > 0 ? "text-slate-400 line-through scale-90" : "text-slate-900")}>₹{p.price}</span>
+                                                    {p.salePrice > 0 && <span className="text-xs font-bold text-emerald-600">₹{p.salePrice}</span>}
+                                                </>
+                                            )}
                                         </div>
                                     </td>
 
                                     {/* Profit Column */}
                                     <td className="px-6 py-4 text-center">
                                         <div className="inline-flex flex-col items-center px-2 py-0.5 bg-emerald-50 rounded-lg border border-emerald-100">
-                                            <span className="text-[10px] font-black text-emerald-700">₹{(Number(p.price || 0) - Number(p.purchasePrice || 0)).toLocaleString()}</span>
-                                            {Number(p.purchasePrice) > 0 && (
-                                                <span className="text-[8px] font-bold text-emerald-500">
-                                                    {(((Number(p.price || 0) - Number(p.purchasePrice || 0)) / Number(p.purchasePrice || 1)) * 100).toFixed(0)}%
-                                                </span>
-                                            )}
+                                            {(() => {
+                                                const sellPrice = Number(p.price || p.salePrice || 0);
+                                                const costPrice = Number(p.purchasePrice || (p.ownerType === 'seller' ? (p.salePrice || p.price) : 0) || 0);
+                                                const profit = sellPrice - costPrice;
+                                                const profitPercentage = costPrice > 0 ? ((profit / costPrice) * 100).toFixed(0) : 0;
+                                                
+                                                return (
+                                                    <div className="flex flex-col">
+                                                        <span className={cn("text-[11px] font-black", profit > 0 ? "text-emerald-600" : profit === 0 ? "text-slate-400" : "text-rose-600")}>
+                                                            ₹{profit.toLocaleString()}
+                                                        </span>
+                                                        <span className={cn("text-[8px] font-bold opacity-60", profit > 0 ? "text-emerald-500" : profit === 0 ? "text-slate-300" : "text-rose-500")}>
+                                                            {profitPercentage}% {profit >= 0 ? 'Margin' : 'Loss'}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     </td>
 
@@ -727,15 +759,44 @@ const ProductManagement = () => {
                                     {/* Actions Column */}
                                     <td className="px-6 py-4 text-right">
                                         <div className="flex items-center justify-end space-x-1.5">
+                                            {activeTab === 'seller' && (
+                                                <button
+                                                    onClick={() => {
+                                                        setRequestData({
+                                                            productId: p._id,
+                                                            vendorId: p.sellerId?._id || p.sellerId,
+                                                            productName: p.name,
+                                                            quantity: 10,
+                                                            notes: ''
+                                                        });
+                                                        setIsRequestModalOpen(true);
+                                                    }}
+                                                    className="p-1.5 text-indigo-500 hover:bg-indigo-50 rounded-lg transition-all"
+                                                    title="Request Stock"
+                                                >
+                                                    <HiOutlinePlus className="h-4 w-4" />
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => openModal(p)}
                                                 className="p-1.5 hover:bg-white hover:text-primary rounded-lg transition-all text-gray-400 shadow-sm ring-1 ring-gray-100"
+                                                title="Full Edit"
                                             >
                                                 <HiOutlinePencilSquare className="h-3.5 w-3.5" />
                                             </button>
+                                            {p.status === 'pending_approval' && (
+                                                <button
+                                                    onClick={() => openApproveModal(p)}
+                                                    className="px-2 py-1.5 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-sm"
+                                                    title="Quick Approve"
+                                                >
+                                                    Approve
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => (setItemToDelete(p), setIsDeleteModalOpen(true))}
                                                 className="p-1.5 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-all text-gray-400 shadow-sm ring-1 ring-gray-100"
+                                                title="Delete"
                                             >
                                                 <HiOutlineTrash className="h-3.5 w-3.5" />
                                             </button>
@@ -761,6 +822,26 @@ const ProductManagement = () => {
                     />
                 </div>
             </Card>
+
+            {/* Request Stock Modal */}
+            <Modal
+                isOpen={isRequestModalOpen}
+                onClose={() => setIsRequestModalOpen(false)}
+                title="Request Stock from Vendor"
+                size="sm"
+                footer={
+                    <>
+                        <button onClick={() => setIsRequestModalOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-400 uppercase">Cancel</button>
+                        <button onClick={handleRequestStock} className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700">Submit Request</button>
+                    </>
+                }
+            >
+                <div className="space-y-4 py-2">
+                    <p className="text-xs text-slate-500">Requesting replenishment for <span className="font-bold">{requestData.productName}</span></p>
+                    <input type="number" value={requestData.quantity} onChange={(e) => setRequestData({...requestData, quantity: e.target.value})} className="w-full p-3 bg-slate-100 rounded-xl text-sm" placeholder="Quantity" />
+                    <textarea value={requestData.notes} onChange={(e) => setRequestData({...requestData, notes: e.target.value})} className="w-full p-3 bg-slate-100 rounded-xl text-sm h-24" placeholder="Add notes for the vendor..." />
+                </div>
+            </Modal>
 
             {/* Super Detailed Modal */}
             <AnimatePresence>
@@ -1208,8 +1289,9 @@ const ProductManagement = () => {
                                                                 <input
                                                                     type="number"
                                                                     value={variant.purchasePrice || formData.purchasePrice}
-                                                                    readOnly={editingItem?.ownerType === 'seller'}
+                                                                    readOnly={editingItem?.ownerType === 'seller' || !!editingItem?.sellerId}
                                                                     onChange={(e) => {
+                                                                        if (editingItem?.ownerType === 'seller' || !!editingItem?.sellerId) return;
                                                                         const val = e.target.value;
                                                                         const newVariants = [...formData.variants];
                                                                         newVariants[idx].purchasePrice = val;
@@ -1218,7 +1300,7 @@ const ProductManagement = () => {
                                                                     placeholder="0.00"
                                                                     className={cn(
                                                                         "w-full px-3 py-2.5 ring-1 ring-slate-200 border-none rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-primary/10",
-                                                                        editingItem?.ownerType === 'seller' ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-white"
+                                                                        (editingItem?.ownerType === 'seller' || !!editingItem?.sellerId) ? "bg-slate-100 text-slate-500 cursor-not-allowed" : "bg-white"
                                                                     )}
                                                                 />
                                                             </div>
@@ -1469,6 +1551,97 @@ const ProductManagement = () => {
                 </div>
             </Modal>
 
+            {/* Quick Approval Modal */}
+            <Modal
+                isOpen={isApproveModalOpen}
+                onClose={() => setIsApproveModalOpen(false)}
+                title="Approve & Set Selling Price"
+                size="sm"
+                footer={
+                    <>
+                        <button onClick={() => setIsApproveModalOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-400 uppercase">Cancel</button>
+                        <button 
+                            onClick={handleQuickApprove}
+                            className="px-6 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-lg hover:bg-emerald-700 transition-all"
+                        >
+                            Confirm & Go Live
+                        </button>
+                    </>
+                }
+            >
+                <div className="space-y-4 py-2">
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Product</p>
+                        <p className="text-sm font-black text-slate-900">{approveRow?.name}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                            <p className="text-[9px] font-bold text-blue-600 uppercase tracking-widest mb-1">Vendor Cost</p>
+                            <p className="text-lg font-black text-blue-700">₹{approveRow?.purchasePrice || approveRow?.price}</p>
+                        </div>
+                        <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+                            <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest mb-1">Est. Profit</p>
+                            <p className="text-lg font-black text-emerald-700">
+                                ₹{(Number(approvePrice || 0) - Number(approveRow?.purchasePrice || approveRow?.price || 0)).toLocaleString()}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest ml-1">Final Selling Price (MRP)</label>
+                        <input
+                            type="number"
+                            autoFocus
+                            value={approvePrice}
+                            onChange={(e) => setApprovePrice(e.target.value)}
+                            className="w-full px-5 py-4 bg-slate-100 border-none rounded-2xl text-xl font-black text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500/20"
+                            placeholder="Set Price for Customers"
+                        />
+                        <p className="text-[10px] text-slate-400 italic px-1 font-medium">This is the price customers will see on the app.</p>
+                    </div>
+                </div>
+            </Modal>
+            {/* Manual Request Stock Modal */}
+            {isRequestModalOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl border border-slate-100 flex flex-col">
+                        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                            <div>
+                                <h3 className="text-lg font-black text-slate-900 tracking-tight italic">Manual Stock Request</h3>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{requestData.productName}</p>
+                            </div>
+                            <button onClick={() => setIsRequestModalOpen(false)} className="p-2 hover:bg-white rounded-full transition-all">
+                                <HiOutlinePlus className="h-6 w-6 text-slate-400 rotate-45" />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Quantity to Request</label>
+                                <input
+                                    type="number"
+                                    value={requestData.quantity}
+                                    onChange={(e) => setRequestData({ ...requestData, quantity: e.target.value })}
+                                    className="w-full px-4 py-3 bg-slate-100 border-none rounded-2xl text-sm font-black outline-none focus:ring-2 focus:ring-primary/20"
+                                    placeholder="e.g. 50"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Special Notes for Seller</label>
+                                <textarea
+                                    value={requestData.notes}
+                                    onChange={(e) => setRequestData({ ...requestData, notes: e.target.value })}
+                                    className="w-full px-4 py-3 bg-slate-100 border-none rounded-2xl text-xs font-semibold outline-none focus:ring-2 focus:ring-primary/20 min-h-[100px] resize-none"
+                                    placeholder="Optional instructions..."
+                                />
+                            </div>
+                            <Button onClick={handleRequestStock} className="w-full h-12 rounded-2xl font-black italic text-sm tracking-tight shadow-xl shadow-primary/20">
+                                Send Procurement Request
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

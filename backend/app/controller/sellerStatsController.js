@@ -1,6 +1,7 @@
 import Order from "../models/order.js";
 import Transaction from "../models/transaction.js";
 import Product from "../models/product.js";
+import PurchaseRequest from "../models/purchaseRequest.js";
 import handleResponse from "../utils/helper.js";
 import mongoose from "mongoose";
 
@@ -12,12 +13,18 @@ export const getSellerStats = async (req, res) => {
         const sellerId = req.user.id;
 
         // 1. Basic Stats (Total Supplies, Total Orders/Requests)
-        const sellerTransactions = await Transaction.find({ 
-            user: sellerId, 
-            userModel: 'Seller', 
-            type: { $in: ['Supply Earning', 'Order Payment'] },
-            status: 'Settled'
-        }).lean();
+        const [sellerTransactions, pendingPRsCount] = await Promise.all([
+            Transaction.find({ 
+                user: sellerId, 
+                userModel: 'Seller', 
+                type: 'Supply Earning',
+                status: 'Settled'
+            }).lean(),
+            PurchaseRequest.countDocuments({
+                vendorId: sellerId,
+                status: { $in: ['created', 'vendor_confirmed', 'pickup_assigned'] }
+            })
+        ]);
 
         const totalSales = sellerTransactions.reduce((acc, t) => acc + (t.amount || 0), 0);
         const totalOrders = sellerTransactions.length;
@@ -46,7 +53,7 @@ export const getSellerStats = async (req, res) => {
                 $match: {
                     user: new mongoose.Types.ObjectId(sellerId),
                     userModel: 'Seller',
-                    type: { $in: ['Supply Earning', 'Order Payment'] },
+                    type: 'Supply Earning',
                     status: 'Settled',
                     createdAt: { $gte: startDate }
                 }
@@ -315,6 +322,7 @@ export const getSellerStats = async (req, res) => {
             overview: {
                 totalSales: `₹${totalSales.toLocaleString()}`,
                 totalOrders: totalOrders.toLocaleString(),
+                pendingPRs: pendingPRsCount.toLocaleString(),
                 avgOrderValue: `₹${Math.round(avgOrderValue).toLocaleString()}`,
                 conversionRate: totalOrders > 0 ? "4.2%" : "0%",
                 salesTrend: `${salesTrendPerc > 0 ? '+' : ''}${salesTrendPerc}%`,
@@ -356,7 +364,7 @@ export const getSellerEarnings = async (req, res) => {
             .reduce((acc, t) => acc + Math.abs(t.amount), 0);
 
         const totalRevenue = transactions
-            .filter(t => t.type === 'Order Payment' || t.type === 'Supply Earning')
+            .filter(t => t.type === 'Supply Earning')
             .reduce((acc, t) => acc + t.amount, 0);
 
         const totalWithdrawn = transactions
@@ -372,7 +380,7 @@ export const getSellerEarnings = async (req, res) => {
                 $match: {
                     user: new mongoose.Types.ObjectId(sellerId),
                     userModel: 'Seller',
-                    type: { $in: ['Order Payment', 'Supply Earning'] },
+                    type: 'Supply Earning',
                     createdAt: { $gte: sixMonthsAgo }
                 }
             },
@@ -413,8 +421,8 @@ export const getSellerEarnings = async (req, res) => {
                 status: t.status,
                 date: t.createdAt.toISOString().split('T')[0],
                 time: t.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                customer: t.type === 'Withdrawal' ? 'Bank Transfer' : 'Customer',
-                ref: t.order ? `#${t.order.orderId}` : t.reference || t._id
+                customer: t.type === 'Withdrawal' ? 'Bank Transfer' : (t.type === 'Supply Earning' ? 'Hub Delivery' : 'Customer'),
+                ref: t.reference || (t.order ? `#${t.order.orderId}` : t._id)
             }))
         });
     } catch (error) {

@@ -61,6 +61,16 @@ const OrderDetail = () => {
         }
     };
 
+    const dispatchHubOrder = async () => {
+        try {
+            await adminApi.updateOrderStatus(orderId, { status: "confirmed" });
+            showToast("Dispatched to delivery search", "success");
+            fetchDetail();
+        } catch (error) {
+            showToast(error?.response?.data?.message || "Dispatch failed", "error");
+        }
+    };
+
     useEffect(() => {
         if (orderId) {
             fetchDetail();
@@ -136,6 +146,26 @@ const OrderDetail = () => {
                                 </select>
                                 <Info className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 pointer-events-none opacity-60" />
                             </div>
+                            {order?.hubFlowEnabled && (
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => handleStatusUpdate("packed")}
+                                        disabled={order.status === "packed" || order.status === "delivered" || order.status === "cancelled"}
+                                        className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Hub packing completed"
+                                    >
+                                        Mark Packed
+                                    </button>
+                                    <button
+                                        onClick={dispatchHubOrder}
+                                        disabled={order.status === "delivered" || order.status === "cancelled"}
+                                        className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Start delivery partner search (hub-first)"
+                                    >
+                                        Dispatch Rider
+                                    </button>
+                                </div>
+                            )}
                         </div>
                         <p className="text-[11px] font-bold text-slate-400 mt-1 uppercase tracking-widest flex items-center gap-2">
                             <Calendar className="h-3.5 w-3.5" />

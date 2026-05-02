@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { 
   FileClock, 
   ArrowRight, 
@@ -14,6 +15,7 @@ import {
   SupplyConfirmModal,
   SupplyFormModal,
   SupplyInfoModal,
+  SupplyDetailsModal,
 } from "../components/supply/SupplyActionModals";
 import { adminApi } from "../services/adminApi";
 import { motion, AnimatePresence } from "framer-motion";
@@ -60,12 +62,21 @@ const PurchaseRequestsPage = () => {
   const [vendorForm, setVendorForm] = useState({ vendorId: "" });
   const [infoOpen, setInfoOpen] = useState(false);
   const [infoMessage, setInfoMessage] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const fetchRows = async () => {
     try {
       const res = await adminApi.getPurchaseRequests({ page: 1, limit: 200 });
-      const payload = res?.data?.result || {};
-      const items = Array.isArray(payload.items) ? payload.items : [];
+      let payload = res?.data?.result || res?.data?.results || {};
+      
+      // Handle both { items: [] } and naked array formats
+      let items = [];
+      if (Array.isArray(payload)) {
+        items = payload;
+      } else if (payload && Array.isArray(payload.items)) {
+        items = payload.items;
+      }
+      
       setRows(
         items.map((item) => ({
           ...item,
@@ -161,24 +172,28 @@ const PurchaseRequestsPage = () => {
   };
 
   const markReceivedAtHub = async (row) => {
+    const loadingToast = toast.loading("Processing hub inward...");
     try {
-      await adminApi.receivePurchaseRequestAtHub(row._id, {});
-      setInfoMessage(`Gate Pass Verified. Item ${row.requestId} is now inside the Hub.`);
-      setInfoOpen(true);
+      console.log("[markReceivedAtHub] Processing ID:", row._id);
+      await adminApi.receivePurchaseRequestAtHub(row._id, { items: [] });
+      toast.success(`Gate Pass Verified. Item ${row.requestId} is now inside the Hub.`, { id: loadingToast });
       fetchRows();
     } catch (err) {
-      toast.error("Inward failed");
+      console.error("[markReceivedAtHub] Error:", err.response?.data || err.message);
+      toast.error(err.response?.data?.message || "Inward failed", { id: loadingToast });
     }
   };
 
   const markVerified = async (row) => {
+    const loadingToast = toast.loading("Verifying and updating stock...");
     try {
+      console.log("[markVerified] Processing ID:", row._id);
       await adminApi.verifyPurchaseRequestInward(row._id, { verified: true });
-      setInfoMessage(`Verification Success. Stock for ${row.product} has been added to Hub Inventory.`);
-      setInfoOpen(true);
+      toast.success(`Verification Success. Stock for ${row.product || 'the product'} has been added to Hub Inventory.`, { id: loadingToast });
       fetchRows();
     } catch (err) {
-      toast.error("Verification and stock update failed");
+      console.error("[markVerified] Error:", err.response?.data || err.message);
+      toast.error(err.response?.data?.message || "Verification and stock update failed", { id: loadingToast });
     }
   };
 
@@ -278,6 +293,13 @@ const PurchaseRequestsPage = () => {
                 </button>
               )}
 
+              <button
+                onClick={() => { setCurrentRow(row); setDetailsOpen(true); }}
+                className="flex items-center gap-2 border border-slate-200 text-slate-600 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all"
+              >
+                View Details
+              </button>
+
               {!isTerminal && (
                 <button
                   onClick={() => { setCurrentRow(row); setCancelOpen(true); }}
@@ -358,6 +380,25 @@ const PurchaseRequestsPage = () => {
         onClose={() => setInfoOpen(false)}
         title="Operation Status"
         message={infoMessage}
+      />
+
+      <SupplyDetailsModal
+        isOpen={detailsOpen}
+        onClose={() => setDetailsOpen(false)}
+        title={`Request Details - ${currentRow?.requestId}`}
+        data={[
+          { label: "Request ID", value: currentRow?.requestId },
+          { label: "Created At", value: currentRow?.createdAt ? new Date(currentRow.createdAt).toLocaleString() : "N/A" },
+          { label: "Vendor / Seller", value: currentRow?.vendorName, fullWidth: true },
+          { label: "Product", value: currentRow?.product },
+          { label: "Quantity", value: `${currentRow?.quantity} Units` },
+          { label: "Unit Cost", value: `₹${currentRow?.unitCost || 0}` },
+          { label: "Current Stage", value: currentRow?.statusLabel },
+          { label: "Pickup Partner", value: currentRow?.pickupPartnerName || "Unassigned" },
+          { label: "ETA", value: currentRow?.eta ? new Date(currentRow.eta).toLocaleString() : "N/A" },
+          { label: "Notes", value: currentRow?.notes || "No notes added", fullWidth: true },
+          { label: "Exception Reason", value: currentRow?.exceptionReason, fullWidth: true },
+        ]}
       />
     </div>
   );

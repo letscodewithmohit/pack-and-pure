@@ -30,6 +30,22 @@ const getCurrentPosition = () =>
     );
   });
 
+const toLatLng = (loc) => {
+  const coords = loc?.coordinates;
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  const [lng, lat] = coords;
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  return { lat, lng };
+};
+
+const openDirections = (destination) => {
+  if (!destination) return;
+  window.open(
+    `https://www.google.com/maps/dir/?api=1&destination=${destination.lat},${destination.lng}`,
+    "_blank",
+  );
+};
+
 const Dashboard = () => {
   const { user, logout } = useAuth();
   const [statusFilter, setStatusFilter] = useState("active");
@@ -37,6 +53,10 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState("");
   const [otpById, setOtpById] = useState({});
+  const [notesById, setNotesById] = useState({});
+  const [vendorImageById, setVendorImageById] = useState({});
+  const [hubImageById, setHubImageById] = useState({});
+  const [uploadingId, setUploadingId] = useState("");
 
   const fetchAssignments = async () => {
     try {
@@ -97,6 +117,8 @@ const Dashboard = () => {
         otp,
         lat: coords.latitude,
         lng: coords.longitude,
+        notes: notesById[row._id] || "",
+        vendorImageUrl: vendorImageById[row._id] || "",
       });
       toast.success(`Items picked successfully from ${row.vendor?.shopName || "Vendor"}`);
       await fetchAssignments();
@@ -117,6 +139,8 @@ const Dashboard = () => {
       await pickupApi.markHubDelivered(row._id, {
         lat: coords.latitude,
         lng: coords.longitude,
+        notes: notesById[row._id] || "",
+        hubImageUrl: hubImageById[row._id] || "",
       });
       toast.success("Assignment delivered to hub");
       await fetchAssignments();
@@ -252,16 +276,23 @@ const Dashboard = () => {
                           <Store size={20} />
                         </div>
                         <div>
-                          <p className="text-sm font-bold text-slate-900">{row.vendor?.shopName || "Harsh's Hub"}</p>
+                          <p className="text-sm font-bold text-slate-900">{row.vendor?.shopName || row.vendor?.name || "Vendor"}</p>
                           <p className="text-xs font-medium text-slate-500 flex items-center gap-1">
                             <MapPin size={10} /> Location Verified
                           </p>
                         </div>
                       </div>
-                      <a 
-                        href={`https://www.google.com/maps/search/?api=1&query=${row.vendor?.shopName}`}
-                        target="_blank"
-                        rel="noreferrer"
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          const dest = toLatLng(row.vendor?.location);
+                          if (!dest) {
+                            toast.error("Vendor location not available");
+                            return;
+                          }
+                          openDirections(dest);
+                        }}
                         className="h-8 w-8 bg-sky-500 text-white rounded-lg flex items-center justify-center shadow-lg shadow-sky-200 hover:bg-sky-600 transition-all"
                       >
                         <Navigation size={14} />
@@ -282,7 +313,69 @@ const Dashboard = () => {
                     </div>
 
                     {/* Actions Area */}
-                    <div className="pt-2 border-t border-slate-100">
+                      <div className="pt-2 border-t border-slate-100">
+                        <div className="mb-3 grid grid-cols-1 gap-2">
+                        <input
+                          type="text"
+                          placeholder="Notes (optional)"
+                          value={notesById[row._id] || ""}
+                          onChange={(e) =>
+                            setNotesById((prev) => ({ ...prev, [row._id]: e.target.value }))
+                          }
+                          className="w-full bg-slate-50 border-none rounded-2xl px-4 py-3 text-xs font-bold text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900 transition-all"
+                        />
+                        {row.status === "pickup_assigned" ? (
+                          <div className="grid grid-cols-1 gap-2">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) =>
+                                uploadProof(row._id, e.target.files?.[0], "vendor")
+                              }
+                              className="w-full bg-slate-50 border-none rounded-2xl px-4 py-3 text-xs font-bold text-slate-800 file:mr-3 file:rounded-xl file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-[10px] file:font-black file:text-white"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Vendor proof image URL (optional)"
+                              value={vendorImageById[row._id] || ""}
+                              onChange={(e) =>
+                                setVendorImageById((prev) => ({ ...prev, [row._id]: e.target.value }))
+                              }
+                              className="w-full bg-slate-50 border-none rounded-2xl px-4 py-3 text-xs font-bold text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900 transition-all"
+                            />
+                            {uploadingId === row._id && (
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                Uploading proof...
+                              </p>
+                            )}
+                          </div>
+                        ) : row.status === "picked" ? (
+                          <div className="grid grid-cols-1 gap-2">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) =>
+                                uploadProof(row._id, e.target.files?.[0], "hub")
+                              }
+                              className="w-full bg-slate-50 border-none rounded-2xl px-4 py-3 text-xs font-bold text-slate-800 file:mr-3 file:rounded-xl file:border-0 file:bg-emerald-600 file:px-3 file:py-2 file:text-[10px] file:font-black file:text-white"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Hub proof image URL (optional)"
+                              value={hubImageById[row._id] || ""}
+                              onChange={(e) =>
+                                setHubImageById((prev) => ({ ...prev, [row._id]: e.target.value }))
+                              }
+                              className="w-full bg-slate-50 border-none rounded-2xl px-4 py-3 text-xs font-bold text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-slate-900 transition-all"
+                            />
+                            {uploadingId === row._id && (
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                Uploading proof...
+                              </p>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
                       {row.status === "pickup_assigned" ? (
                         <div className="space-y-3">
                           <div className="relative">
@@ -351,3 +444,24 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
+  const uploadProof = async (rowId, file, type) => {
+    try {
+      if (!file) return;
+      setUploadingId(rowId);
+      const fd = new FormData();
+      fd.append("image", file);
+      const res = await pickupApi.uploadProofImage(fd, type);
+      const url = res?.data?.result?.url || "";
+      if (!url) throw new Error("Upload failed");
+      if (type === "hub") {
+        setHubImageById((prev) => ({ ...prev, [rowId]: url }));
+      } else {
+        setVendorImageById((prev) => ({ ...prev, [rowId]: url }));
+      }
+      toast.success("Proof uploaded");
+    } catch (e) {
+      toast.error(e?.response?.data?.message || e?.message || "Proof upload failed");
+    } finally {
+      setUploadingId("");
+    }
+  };

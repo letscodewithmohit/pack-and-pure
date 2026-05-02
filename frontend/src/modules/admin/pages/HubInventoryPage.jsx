@@ -32,12 +32,27 @@ const HubInventoryPage = () => {
   const [minRow, setMinRow] = useState(null);
   const [minValue, setMinValue] = useState("0");
 
+  const [priceOpen, setPriceOpen] = useState(false);
+  const [priceRow, setPriceRow] = useState(null);
+  const [priceForm, setPriceForm] = useState({
+    marginType: "percent",
+    marginValue: "15",
+    sellPrice: "0",
+  });
+
   const fetchInventory = async () => {
     try {
       setLoading(true);
       const res = await adminApi.getHubInventory();
-      const payload = res.data?.result || {};
-      const items = Array.isArray(payload.items) ? payload.items : [];
+      let payload = res.data?.result || res.data?.results || {};
+      
+      let items = [];
+      if (Array.isArray(payload)) {
+        items = payload;
+      } else if (payload && Array.isArray(payload.items)) {
+        items = payload.items;
+      }
+      
       setRows(items);
     } catch {
       setRows([]);
@@ -109,6 +124,28 @@ const HubInventoryPage = () => {
     await fetchInventory();
   };
 
+  const openPriceModal = (row) => {
+    setPriceRow(row);
+    setPriceForm({
+      marginType: row.marginType || "percent",
+      marginValue: String(row.marginValue || 15),
+      sellPrice: String(row.sellPrice || 0),
+    });
+    setPriceOpen(true);
+  };
+
+  const submitPrice = async () => {
+    if (!priceRow?._id) return;
+    await adminApi.upsertHubInventory({
+      productId: priceRow.productId,
+      marginType: priceForm.marginType,
+      marginValue: Number(priceForm.marginValue),
+      sellPrice: Number(priceForm.sellPrice),
+    });
+    setPriceOpen(false);
+    await fetchInventory();
+  };
+
   const openMinModal = (row) => {
     setMinRow(row);
     setMinValue(String(row.minimumStockAlert || 0));
@@ -177,7 +214,9 @@ const HubInventoryPage = () => {
         columns={[
           { key: "productName", label: "Product Name" },
           { key: "category", label: "Category" },
+          { key: "sellerName", label: "Supplier" },
           { key: "hubStockQuantity", label: "Hub Stock Quantity" },
+          { key: "sellPrice", label: "Selling Price (₹)" },
           { key: "minimumStockAlert", label: "Minimum Stock Alert" },
           { key: "status", label: "Status" },
         ]}
@@ -193,9 +232,15 @@ const HubInventoryPage = () => {
             </button>
             <button
               type="button"
+              onClick={() => openPriceModal(row)}
+              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">
+              Edit Price
+            </button>
+            <button
+              type="button"
               onClick={() => openMinModal(row)}
               className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">
-              Update Stock
+              Update Min
             </button>
           </>
         )}
@@ -299,6 +344,29 @@ const HubInventoryPage = () => {
         values={{ minValue }}
         onChange={(_, value) => setMinValue(value)}
         onSubmit={submitMin}
+      />
+
+      <SupplyFormModal
+        isOpen={priceOpen}
+        onClose={() => setPriceOpen(false)}
+        title={`Edit Pricing - ${priceRow?.productNameText || ""}`}
+        submitLabel="Save Changes"
+        fields={[
+          {
+            key: "marginType",
+            label: "Margin Strategy",
+            type: "select",
+            options: [
+              { value: "percent", label: "Percentage (%)" },
+              { value: "flat", label: "Flat Profit (₹)" },
+            ],
+          },
+          { key: "marginValue", label: "Margin Value", type: "number" },
+          { key: "sellPrice", label: "Direct Selling Price (Overrides Margin)", type: "number" },
+        ]}
+        values={priceForm}
+        onChange={(k, v) => setPriceForm((p) => ({ ...p, [k]: v }))}
+        onSubmit={submitPrice}
       />
     </>
   );

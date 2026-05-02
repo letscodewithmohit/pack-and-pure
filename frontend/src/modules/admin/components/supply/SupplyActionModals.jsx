@@ -115,7 +115,37 @@ export const SupplyInfoModal = ({ isOpen, onClose, title, message }) => {
           OK
         </button>
       }>
-      <p className="text-sm text-slate-700">{message}</p>
+      <p className="text-sm text-slate-700 whitespace-pre-wrap">{message}</p>
+    </Modal>
+  );
+};
+
+export const SupplyDetailsModal = ({ isOpen, onClose, title, data = [] }) => {
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={title}
+      footer={
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-slate-800">
+          Close
+        </button>
+      }>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+        {data.map((item, idx) => (
+          <div key={idx} className={item.fullWidth ? "col-span-2" : "col-span-1"}>
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block mb-1">
+              {item.label}
+            </span>
+            <span className="text-sm font-semibold text-slate-900 block break-words">
+              {item.value || "N/A"}
+            </span>
+          </div>
+        ))}
+      </div>
     </Modal>
   );
 };

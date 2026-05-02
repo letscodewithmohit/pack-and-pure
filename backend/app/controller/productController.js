@@ -127,17 +127,29 @@ export const getProducts = async (req, res) => {
         return handleResponse(res, 400, "lat and lng are required for customer product visibility");
       }
       
-      const hubRows = await HubInventory.find({
-        hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB",
-      }).select("productId").lean();
+      const hubId = process.env.DEFAULT_HUB_ID || "MAIN_HUB";
+      const [hubRows, sellerMasterIds] = await Promise.all([
+        HubInventory.find({ hubId, availableQty: { $gt: 0 } })
+          .select("productId")
+          .lean(),
+        Product.distinct("masterProductId", {
+          ownerType: "seller",
+          status: "active",
+          stock: { $gt: 0 },
+          masterProductId: { $ne: null },
+        }),
+      ]);
 
-      const hubProductIds = (hubRows || []).map((row) => row?.productId && String(row.productId)).filter(Boolean);
+      const eligibleIds = Array.from(
+        new Set([
+          ...(hubRows || []).map((row) => row?.productId && String(row.productId)).filter(Boolean),
+          ...(sellerMasterIds || []).map((id) => id && String(id)).filter(Boolean),
+        ]),
+      );
 
-      query.$or = [
-        { _id: { $in: hubProductIds } },
-        { ownerType: "admin" }
-      ];
+      query.ownerType = "admin";
       query.status = "active";
+      query._id = { $in: eligibleIds };
     } else {
       if (status) query.status = status;
       if (req.query.ownerType === "admin") {
@@ -226,11 +238,18 @@ export const getProducts = async (req, res) => {
             $group: {
               _id: "$masterProductId",
               totalSellerStock: { $sum: "$stock" },
+              minPurchasePrice: { $min: "$purchasePrice" },
+              avgPurchasePrice: { $avg: "$purchasePrice" }
             },
           },
         ]);
         sellerStockSummary.forEach(s => {
-          if (s._id) sellerStockMap.set(String(s._id), Number(s.totalSellerStock || 0));
+          if (s._id) {
+            sellerStockMap.set(String(s._id), {
+              stock: Number(s.totalSellerStock || 0),
+              cost: Number(s.minPurchasePrice || s.avgPurchasePrice || 0)
+            });
+          }
         });
       } catch (err) {
         console.error("[getProducts] Aggregation Error:", err.message);
@@ -243,7 +262,8 @@ export const getProducts = async (req, res) => {
       
       if (p.ownerType === 'admin') {
         const hubQty = hubData ? Number(hubData.hubStockQuantity || hubData.availableQty || 0) : 0;
-        const mappedSellerStock = sellerStockMap.get(pIdStr) || 0;
+        const mappedSellerData = sellerStockMap.get(pIdStr) || { stock: 0, cost: p.purchasePrice || 0 };
+        const mappedSellerStock = mappedSellerData.stock;
         const totalAvailableQty = hubQty + mappedSellerStock;
         
         // SOP Alignment: Use dynamic sellPrice from Hub Inventory if available
@@ -253,6 +273,7 @@ export const getProducts = async (req, res) => {
           ...p,
           price: dynamicPrice, // Override with Hub Price
           salePrice: dynamicPrice,
+          purchasePrice: mappedSellerData.cost, // Use min seller cost for master profit calculation
           stock: totalAvailableQty,
           availableQtyHub: hubQty,
           availableQtySeller: mappedSellerStock,
@@ -359,6 +380,17 @@ export const createProduct = async (req, res) => {
       productData.ownerType = "seller";
       productData.sellerId = req.user.id;
       productData.status = "pending_approval";
+
+      // HUB-FIRST SOP: Seller price represents procurement/supply cost for Hub.
+      // Normalize seller pricing so `price`, `salePrice`, and `purchasePrice` stay consistent.
+      if (productData.price !== undefined) {
+        const supply = Number(productData.price);
+        if (Number.isFinite(supply)) {
+          productData.price = supply;
+          productData.salePrice = supply;
+          productData.purchasePrice = supply;
+        }
+      }
     }
 
     // We will generate the final slugs just before creation to avoid duplicate conflicts between Master and Seller entries
@@ -447,12 +479,20 @@ export const createProduct = async (req, res) => {
     if (product.ownerType === "admin") {
       try {
         // We initialize with 0! Stock should come from Hub Inventory management or Seller procurement.
-        const HubInventory = mongoose.model("HubInventory");
+        const seededSellPrice = Number(productData.salePrice || 0) > 0
+          ? Number(productData.salePrice)
+          : Number(productData.price || 0);
+
         await HubInventory.findOneAndUpdate(
           { hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB", productId: product._id },
           { 
-            $setOnInsert: { availableQty: Number(productData.stock || 0), reservedQty: 0 },
-            $set: { reorderLevel: Number(productData.lowStockAlert || 10) } 
+            $setOnInsert: {
+              availableQty: Number(productData.stock || 0),
+              reservedQty: 0,
+              sellPrice: seededSellPrice > 0 ? seededSellPrice : 0,
+              priceUpdatedAt: new Date(),
+            },
+            $set: { reorderLevel: Number(productData.lowStockAlert || 10) },
           },
           { upsert: true, new: true }
         );
@@ -487,10 +527,22 @@ export const updateProduct = async (req, res) => {
       return handleResponse(res, 404, "Product not found or unauthorized");
     }
 
-    if (role !== "admin") {
-      delete productData.status;
+    if (role === "admin" && product.ownerType === "seller") {
+      // Admin is allowed to change status but not sellerId
       delete productData.sellerId;
-      productData.status = "pending_approval";
+    } else if (role !== "admin") {
+      delete productData.sellerId;
+      
+      // SOP: If seller is ONLY updating stock/images, don't force re-approval
+      // If name, price or category changes, then it must go back to pending
+      const sensitiveFields = ['name', 'price', 'salePrice', 'categoryId', 'subcategoryId'];
+      const isSensitiveChange = sensitiveFields.some(f => productData[f] !== undefined && String(productData[f]) !== String(product[f]));
+      
+      if (isSensitiveChange) {
+        productData.status = "pending_approval";
+      } else {
+        delete productData.status; // Keep existing status (active/rejected/etc)
+      }
     }
 
     if (typeof productData.variants === "string") {
@@ -502,10 +554,19 @@ export const updateProduct = async (req, res) => {
     }
 
     // Typecast numbers to ensure database integrity
-    if (productData.price) productData.price = Number(productData.price);
-    if (productData.salePrice) productData.salePrice = Number(productData.salePrice);
-    if (productData.purchasePrice) productData.purchasePrice = Number(productData.purchasePrice);
-    if (productData.stock) productData.stock = Number(productData.stock);
+    if (productData.price !== undefined) productData.price = Number(productData.price);
+    if (productData.salePrice !== undefined) productData.salePrice = Number(productData.salePrice);
+    if (productData.purchasePrice !== undefined) productData.purchasePrice = Number(productData.purchasePrice);
+    if (productData.stock !== undefined) productData.stock = Number(productData.stock);
+
+    // HUB-FIRST SOP: Seller price is supply cost; keep seller fields aligned.
+    if (role !== "admin" && product.ownerType === "seller" && productData.price !== undefined) {
+      const supply = Number(productData.price);
+      if (Number.isFinite(supply)) {
+        productData.salePrice = supply;
+        productData.purchasePrice = supply;
+      }
+    }
 
     // Smart Mapping & Merge Logic: If masterProductId is changed by Admin
     const oldMasterId = product.masterProductId;
@@ -644,6 +705,69 @@ export const updateProduct = async (req, res) => {
       { new: true, runValidators: true },
     );
 
+    // SYNC PRICE & STOCK: Ensure consistency between main product and variants
+    const updates = {};
+    if (updatedProduct.variants && updatedProduct.variants.length > 0) {
+      if (updatedProduct.variants.length === 1 && productData.stock !== undefined) {
+         // Special Case: If only 1 variant (Simple Product), sync variant stock with main stock
+         updatedProduct.variants[0].stock = Number(productData.stock);
+         updates.variants = updatedProduct.variants;
+         updates.stock = Number(productData.stock);
+      } else {
+         const totalVariantStock = updatedProduct.variants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+         if (updatedProduct.stock !== totalVariantStock) updates.stock = totalVariantStock;
+      }
+    }
+      
+      // If price was updated, ensure variants match, or if variant 0 price is different, update main
+      // For Master Products, we want all variants to stay in sync with the master price
+      if (role === "admin") {
+         const newPrice = Number(productData.price || updatedProduct.price);
+         if (newPrice > 0) {
+            updates.price = newPrice;
+            updates.salePrice = newPrice;
+            
+            // Map variants to new price
+            const syncedVariants = updatedProduct.variants.map(v => ({
+               ...v.toObject(),
+               price: newPrice,
+               salePrice: newPrice
+            }));
+            updates.variants = syncedVariants;
+         }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await Product.findByIdAndUpdate(id, { $set: updates });
+      }
+
+    // --- UNIVERSAL PROPAGATION: Master to Sellers (Simple & Variant Products) ---
+    if (updatedProduct.ownerType === 'admin') {
+        const currentMasterPrice = Number(productData.price || updatedProduct.price);
+        if (currentMasterPrice > 0) {
+            console.log(`[Universal Sync] Master Product ${id} price updated. Propagating ₹${currentMasterPrice} to all linked sellers...`);
+            
+            // 1. Update main fields for all linked seller products
+            await Product.updateMany(
+                { masterProductId: id },
+                { $set: { price: currentMasterPrice, salePrice: currentMasterPrice } }
+            );
+
+            // 2. Update variants for all linked seller products (Deep Sync)
+            const linkedSellers = await Product.find({ masterProductId: id });
+            for (const sp of linkedSellers) {
+                if (sp.variants && sp.variants.length > 0) {
+                    sp.variants = sp.variants.map(v => ({
+                        ...v.toObject(),
+                        price: currentMasterPrice,
+                        salePrice: currentMasterPrice
+                    }));
+                    await sp.save();
+                }
+            }
+        }
+    }
+
     // --- AUTO APPROVAL & MASTER PROMOTION Logic ---
     const currentStatus = (productData.status || (req.body && req.body.status) || "").toLowerCase();
     const customerPrice = Number(req.body.customerPrice);
@@ -685,10 +809,19 @@ export const updateProduct = async (req, res) => {
             mainImage: updatedProduct.mainImage,
             galleryImages: updatedProduct.galleryImages,
             description: updatedProduct.description,
-            price: customerPrice || updatedProduct.price, // Admin price gets priority
+            price: customerPrice || updatedProduct.price, 
             salePrice: customerPrice || updatedProduct.salePrice,
-            stock: 0, // Master stock starts at 0, syncs via Hub Inventory
-            variants: updatedProduct.variants
+            purchasePrice: updatedProduct.price, // Seller's price is Admin's cost
+            stock: 0,
+            variants: (updatedProduct.variants || []).map(v => {
+              const vObj = v.toObject ? v.toObject() : v;
+              return {
+                ...vObj,
+                purchasePrice: vObj.price, // Map seller's price to purchasePrice
+                price: customerPrice || vObj.price,
+                salePrice: customerPrice || vObj.price
+              };
+            })
           });
           
           const savedMaster = await newMaster.save();
@@ -711,20 +844,35 @@ export const updateProduct = async (req, res) => {
         }
       }
       
-      // 3. SYNC: If we have a master ID, ensure status and optional customerPrice are synced
+      // 3. SYNC: If we have a master ID, ensure status and customerPrice are synced ONLY to Master Catalog
       if (mid) {
         const masterUpdate = {};
         if (currentStatus === "active") masterUpdate.status = "active";
         
+        // If Admin sends customerPrice, it updates the Master Catalog ONLY.
+        // This ensures Seller's Vendor Price (Supply Price) stays separate.
         if (!isNaN(customerPrice) && customerPrice > 0) {
           masterUpdate.price = customerPrice;
           masterUpdate.salePrice = customerPrice;
+          
+          // SYNC VARIANTS: Ensure variants in Master Catalog also get the Selling Price
+          const targetMaster = await Product.findById(mid);
+          if (targetMaster && targetMaster.variants && targetMaster.variants.length > 0) {
+            masterUpdate.variants = targetMaster.variants.map(v => {
+              const variantObj = v.toObject ? v.toObject() : v;
+              return {
+                ...variantObj,
+                price: customerPrice,
+                salePrice: customerPrice
+              };
+            });
+          }
         }
 
         if (Object.keys(masterUpdate).length > 0) {
           try {
             await Product.findByIdAndUpdate(mid, { $set: masterUpdate });
-            console.log(`[updateProduct] SUCCESS: Synced Master Product ${mid} (Status: ${masterUpdate.status}, Price: ${customerPrice || 'N/A'})`);
+            console.log(`[updateProduct] SUCCESS: Synced Master Product ${mid} with Customer Price: ₹${customerPrice || 'N/A'}`);
           } catch (err) {
             console.warn("[updateProduct] ERROR: Failed to sync master product:", err.message);
           }
@@ -735,15 +883,34 @@ export const updateProduct = async (req, res) => {
     // Ensure Admin products have an entry in Hub Inventory
     if (updatedProduct.ownerType === "admin") {
       try {
-        const HubInventory = mongoose.model("HubInventory");
+        const candidateSellPrice =
+          !isNaN(customerPrice) && customerPrice > 0
+            ? Number(customerPrice)
+            : Number(updatedProduct.salePrice || 0) > 0
+              ? Number(updatedProduct.salePrice)
+              : Number(updatedProduct.price || 0);
+
+        // Only seed hub sellPrice if it hasn't been set yet (0).
+        // Hub Inventory price can be manually overridden from the Hub panel.
         await HubInventory.findOneAndUpdate(
           { hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB", productId: updatedProduct._id },
           { 
             $setOnInsert: { availableQty: 0 }, 
-            $set: { reorderLevel: Number(updatedProduct.lowStockAlert || 10) } 
+            $set: { reorderLevel: Number(updatedProduct.lowStockAlert || 10) },
           },
           { upsert: true }
         );
+
+        if (candidateSellPrice > 0) {
+          await HubInventory.updateMany(
+            {
+              hubId: process.env.DEFAULT_HUB_ID || "MAIN_HUB",
+              productId: updatedProduct._id,
+              $or: [{ sellPrice: { $exists: false } }, { sellPrice: { $lte: 0 } }],
+            },
+            { $set: { sellPrice: candidateSellPrice, priceUpdatedAt: new Date() } },
+          );
+        }
       } catch (err) {
         console.warn("[updateProduct] Hub entry sync failed", err.message);
       }
@@ -850,4 +1017,40 @@ export const getProductById = async (req, res) => {
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
+};
+
+/**
+ * Utility to propagate price changes from a Master Product to all linked seller products.
+ * Used by other controllers (e.g., during Stock Inwarding).
+ */
+export const propagatePriceUpdates = async (masterProduct) => {
+    try {
+        if (!masterProduct || masterProduct.ownerType !== 'admin') return;
+
+        const newPrice = Number(masterProduct.price || masterProduct.salePrice || 0);
+        if (newPrice <= 0) return;
+
+        console.log(`[Exported Sync] Triggering full sync for Master ${masterProduct._id} -> ₹${newPrice}`);
+
+        // 1. Update main price fields
+        await mongoose.model('Product').updateMany(
+            { masterProductId: masterProduct._id },
+            { $set: { price: newPrice, salePrice: newPrice } }
+        );
+
+        // 2. Update variants for all linked sellers
+        const linkedProducts = await mongoose.model('Product').find({ masterProductId: masterProduct._id });
+        for (const lp of linkedProducts) {
+            if (lp.variants && lp.variants.length > 0) {
+                lp.variants = lp.variants.map(v => ({
+                    ...v.toObject(),
+                    price: newPrice,
+                    salePrice: newPrice
+                }));
+                await lp.save();
+            }
+        }
+    } catch (err) {
+        console.error("[propagatePriceUpdates] Sync failed:", err.message);
+    }
 };

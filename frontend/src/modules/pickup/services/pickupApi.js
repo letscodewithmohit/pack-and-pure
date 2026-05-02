@@ -11,5 +11,8 @@ export const pickupApi = {
     axiosInstance.post(`/pickup-partner/my/assignments/${id}/mark-picked`, data),
   markHubDelivered: (id, data) =>
     axiosInstance.post(`/pickup-partner/my/assignments/${id}/mark-hub-delivered`, data),
+  uploadProofImage: (formData, type = "vendor") =>
+    axiosInstance.post(`/pickup-partner/my/proofs/upload?type=${type}`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
 };
-

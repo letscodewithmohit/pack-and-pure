@@ -31,63 +31,90 @@ const DeliveryTracking = () => {
   const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
-    fetchDeliveries();
+    fetchPurchaseRequests();
   }, []);
 
-  const fetchDeliveries = async () => {
+  const statusLabel = (s) => {
+    const v = String(s || "").toLowerCase();
+    if (v === "created") return "Awaiting Action";
+    if (v === "vendor_confirmed") return "Awaiting Pickup";
+    if (v === "pickup_assigned") return "Pickup Assigned";
+    if (v === "picked") return "Picked Up";
+    if (v === "hub_delivered") return "At Hub Gate";
+    if (v === "received_at_hub") return "Received at Hub";
+    if (v === "verified") return "Verified & Stocked";
+    if (v === "closed") return "Closed";
+    if (v === "cancelled") return "Cancelled";
+    if (v === "exception") return "Exception";
+    return "In Progress";
+  };
+
+  const isCompletedStatus = (s) => {
+    const v = String(s || "").toLowerCase();
+    return ["verified", "closed", "cancelled", "exception"].includes(v);
+  };
+
+  const fetchPurchaseRequests = async () => {
     try {
       setLoading(true);
-      const response = await sellerApi.getOrders();
-      // Only show orders that are confirmed, packed, or out for delivery (Tracking flow)
-      const payload = response.data.result || {};
-      const orderList = Array.isArray(payload.items)
+      const response = await sellerApi.getPurchaseRequests({ status: "all" });
+      const payload = response.data?.result || response.data?.results || {};
+      const prList = Array.isArray(payload.items)
         ? payload.items
-        : (response.data.results || []);
+        : Array.isArray(payload)
+          ? payload
+          : [];
 
-      const formattedDeliveries = orderList
-        .filter(order => order.status !== 'pending' && order.status !== 'cancelled')
-        .map(order => {
-          let uiStatus = "Active";
-          if (order.status === 'delivered') uiStatus = "Delivered";
-          else if (order.status === 'out_for_delivery') uiStatus = "On the Way";
-          else uiStatus = "Picked Up";
+      const formatted = (prList || []).map((pr) => {
+        const partner = pr.pickupPartner || pr.pickupPartnerId || null;
+        const partnerName = partner?.name || partner?.fullName || "Not Assigned";
+        const partnerPhone = partner?.phone || "N/A";
+        const coords =
+          pr?.hubDropProof?.location ||
+          pr?.pickupProof?.location ||
+          null;
 
-          return {
-            id: order._id,
-            orderId: order.orderId,
-            status: uiStatus,
-            deliveryBoy: order.deliveryBoy ? {
-              name: order.deliveryBoy.name,
-              phone: order.deliveryBoy.phone,
-              avatar: order.deliveryBoy.name?.charAt(0) || "?",
-              image: order.deliveryBoy.image || "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&h=100&fit=crop",
-              rating: order.deliveryBoy.rating || 4.5,
-            } : {
-              name: "Not Assigned",
-              phone: "N/A",
-              avatar: "?",
-              image: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&h=100&fit=crop",
-              rating: 0,
-            },
-            location: order.status === 'delivered' && order.updatedAt
-              ? `Delivered at ${new Date(order.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-              : "In Progress",
-            orderDate: order.createdAt
-              ? new Date(order.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-              : "",
-            startTime: order.createdAt
-              ? new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              : "",
-            estimatedDelivery: "20-30 mins",
-            customerName: order.customer?.name || "Customer",
-            address: order.address
-              ? `${order.address.address || ""}, ${order.address.city || ""}`.trim()
-              : "",
-            addressCoords: order.address?.location || null,
-          };
-        });
+        return {
+          id: pr._id,
+          orderId: pr.requestId,
+          status: statusLabel(pr.status),
+          rawStatus: pr.status,
+          isCompleted: isCompletedStatus(pr.status),
+          deliveryBoy: {
+            name: partnerName,
+            phone: partnerPhone,
+            avatar: partnerName?.charAt(0) || "?",
+            image:
+              partner?.image ||
+              "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&h=100&fit=crop",
+            rating: partner?.rating || 0,
+          },
+          location: pr.updatedAt
+            ? `Updated at ${new Date(pr.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+            : "In Progress",
+          orderDate: pr.createdAt
+            ? new Date(pr.createdAt).toLocaleDateString("en-IN", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })
+            : "",
+          startTime: pr.createdAt
+            ? new Date(pr.createdAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "",
+          estimatedDelivery: pr.eta
+            ? `ETA ${new Date(pr.eta).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+            : "ETA: Pending",
+          customerName: pr.orderId?.orderId ? `Order #${pr.orderId.orderId}` : "Hub Procurement",
+          address: pr.vendorReadyNotes || pr.notes || "Procurement request to Hub",
+          addressCoords: coords,
+        };
+      });
 
-      setDeliveries(formattedDeliveries);
+      setDeliveries(formatted);
     } catch (error) {
       console.error("Tracking Error:", error);
       showToast("Failed to fetch tracking data", "error");
@@ -104,7 +131,7 @@ const DeliveryTracking = () => {
         dlv.orderId.toLowerCase().includes(searchTerm.toLowerCase()) ||
         dlv.deliveryBoy.name.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const isCompleted = dlv.status === "Delivered";
+      const isCompleted = Boolean(dlv.isCompleted);
       if (activeTab === "Active") return matchesSearch && !isCompleted;
       if (activeTab === "Completed") return matchesSearch && isCompleted;
       return matchesSearch;
@@ -126,22 +153,30 @@ const DeliveryTracking = () => {
   const stats = useMemo(
     () => [
       {
-        label: "On the Way",
-        value: deliveries.filter((d) => d.status === "On the Way").length,
+        label: "Awaiting Pickup",
+        value: deliveries.filter((d) =>
+          ["created", "vendor_confirmed"].includes(String(d.rawStatus || "").toLowerCase()),
+        ).length,
         icon: HiOutlineTruck,
         color: "text-blue-600",
         bg: "bg-blue-50",
       },
       {
-        label: "At Store",
-        value: deliveries.filter((d) => d.status === "Picked Up").length,
+        label: "In Transit",
+        value: deliveries.filter((d) =>
+          ["pickup_assigned", "picked", "hub_delivered", "received_at_hub"].includes(
+            String(d.rawStatus || "").toLowerCase(),
+          ),
+        ).length,
         icon: HiOutlineMapPin,
         color: "text-amber-600",
         bg: "bg-amber-50",
       },
       {
-        label: "Completed Today",
-        value: deliveries.filter((d) => d.status === "Delivered").length,
+        label: "Verified",
+        value: deliveries.filter((d) =>
+          ["verified", "closed"].includes(String(d.rawStatus || "").toLowerCase()),
+        ).length,
         icon: HiOutlineCheckCircle,
         color: "text-emerald-600",
         bg: "bg-emerald-50",
@@ -151,16 +186,12 @@ const DeliveryTracking = () => {
   );
 
   const getStatusVariant = (status) => {
-    switch (status) {
-      case "On the Way":
-        return "info";
-      case "Picked Up":
-        return "warning";
-      case "Delivered":
-        return "success";
-      default:
-        return "primary";
-    }
+    const v = String(status || "").toLowerCase();
+    if (v.includes("verified") || v.includes("closed")) return "success";
+    if (v.includes("cancel")) return "error";
+    if (v.includes("exception")) return "error";
+    if (v.includes("pickup") || v.includes("transit") || v.includes("picked")) return "warning";
+    return "info";
   };
 
   return (
@@ -169,15 +200,15 @@ const DeliveryTracking = () => {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
-              Delivery Tracking
+              Purchase Request Tracking
               <Badge
                 variant="primary"
                 className="text-[9px] px-1.5 py-0 font-bold tracking-wider uppercase bg-blue-100 text-blue-700">
-                Live Fleet
+                Hub-First
               </Badge>
             </h1>
             <p className="text-slate-600 text-base mt-0.5 font-medium">
-              Monitor active deliveries and assigned delivery partners.
+              Track your procurement requests and pickup partner progress.
             </p>
           </div>
         </div>
@@ -296,7 +327,7 @@ const DeliveryTracking = () => {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-[9px] sm:text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-0.5">
-                                Delivery Partner
+                                Pickup Partner
                               </p>
                               <h3 className="text-sm sm:text-base font-black text-slate-900 leading-none truncate">
                                 {dlv.deliveryBoy.name}
@@ -347,7 +378,7 @@ const DeliveryTracking = () => {
                             <div className="flex items-center justify-between gap-2 mb-1.5 sm:mb-2">
                               <p className="text-[9px] sm:text-xs font-black text-slate-600 uppercase tracking-widest flex items-center gap-2">
                                 <HiOutlineMapPin className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary shrink-0" />
-                                Customer Address
+                                Destination Address
                               </p>
                               {dlv.addressCoords &&
                                 typeof dlv.addressCoords.lat === "number" &&

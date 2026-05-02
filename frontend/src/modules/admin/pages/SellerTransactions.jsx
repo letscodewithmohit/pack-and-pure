@@ -76,9 +76,13 @@ const SellerTransactions = () => {
                             t.type.toLowerCase(),
                     amount: t.amount,
                     commissionRate: t.type === 'Supply Earning' ? 0 : (t.order?.pricing?.platformFeeRate || 0),
-                    commissionAmount: t.type === 'Supply Earning' ? 0 : (t.order?.pricing?.platformFee || 0),
+                    commissionAmount: t.type === 'Supply Earning' 
+                        ? (t.order ? Math.max(0, (t.order.pricing?.subtotal || 0) - t.amount) : 0)
+                        : (t.order?.pricing?.platformFee || 0),
                     taxAmount: t.type === 'Supply Earning' ? 0 : (t.order?.pricing?.tax || 0),
                     netPayable: t.amount,
+                    // Use Order Price as Base Subtotal for Supply Earnings to show profit
+                    displayAmount: t.type === 'Supply Earning' && t.order ? (t.order.pricing?.subtotal || t.amount) : t.amount,
                     status: t.status.toLowerCase(),
                     paymentMethod: t.paymentMethod || 'Wallet',
                     bankDetails: t.bankDetails || t.user?.bankDetails || 'N/A',
@@ -107,7 +111,7 @@ const SellerTransactions = () => {
 
     const stats = useMemo(() => {
         return {
-            totalGross: transactions.filter(t => t.type === 'sale').reduce((acc, t) => acc + t.amount, 0),
+            totalGross: transactions.filter(t => t.type === 'sale').reduce((acc, t) => acc + (t.displayAmount || t.amount), 0),
             totalCommission: transactions.filter(t => t.type === 'sale').reduce((acc, t) => acc + (t.commissionAmount || 0), 0),
             totalPayouts: Math.abs(transactions.filter(t => t.type === 'payout').reduce((acc, t) => acc + t.amount, 0)),
             pendingSettlements: transactions.filter(t => t.status === 'pending').reduce((acc, t) => acc + Math.abs(t.amount), 0)
@@ -317,9 +321,9 @@ const SellerTransactions = () => {
                                     <td className="px-6 py-5 text-center">
                                         <p className={cn(
                                             "text-sm font-black",
-                                            txn.amount > 0 ? "text-slate-900" : "text-rose-600"
+                                            txn.displayAmount > 0 ? "text-slate-900" : "text-rose-600"
                                         )}>
-                                            ₹{Math.abs(txn.amount).toLocaleString()}
+                                            ₹{Math.abs(txn.displayAmount).toLocaleString()}
                                         </p>
                                     </td>
                                     <td className="px-6 py-5 text-center">
@@ -394,7 +398,7 @@ const SellerTransactions = () => {
                                 {selectedTxn.type === 'sale' ? <ShoppingCart className="h-8 w-8" /> : selectedTxn.type === 'payout' ? <ArrowUpRight className="h-8 w-8" /> : <Undo2 className="h-8 w-8" />}
                             </div>
                             <h2 className="text-3xl font-black text-slate-900 tracking-tight">
-                                {selectedTxn.amount > 0 ? '' : '-'}₹{Math.abs(selectedTxn.amount).toLocaleString()}
+                                {selectedTxn.displayAmount > 0 ? '' : '-'}₹{Math.abs(selectedTxn.displayAmount).toLocaleString()}
                             </h2>
                             <p className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mt-2">{selectedTxn.id}</p>
                         </div>
@@ -436,7 +440,7 @@ const SellerTransactions = () => {
                                     <div className="bg-slate-900 rounded-xl p-6 text-white space-y-4">
                                         <div className="flex justify-between items-center text-sm font-medium">
                                             <span className="opacity-60">Base Subtotal</span>
-                                            <span>₹{selectedTxn.amount}</span>
+                                            <span>₹{selectedTxn.displayAmount}</span>
                                         </div>
                                         <div className="flex justify-between items-center text-sm font-medium">
                                             <span className="opacity-60">Admin Fee ({selectedTxn.commissionRate}%)</span>

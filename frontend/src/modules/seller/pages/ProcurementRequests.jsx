@@ -13,6 +13,11 @@ const STATUS_OPTIONS = [
   { label: "Vendor Confirmed", value: "vendor_confirmed" },
   { label: "Pickup Assigned", value: "pickup_assigned" },
   { label: "Picked", value: "picked" },
+  { label: "Hub Delivered", value: "hub_delivered" },
+  { label: "Received at Hub", value: "received_at_hub" },
+  { label: "Verified", value: "verified" },
+  { label: "Closed", value: "closed" },
+  { label: "Cancelled", value: "cancelled" },
   { label: "Exception", value: "exception" },
 ];
 
@@ -26,6 +31,7 @@ const statusVariant = (status) => {
       return "primary";
     case "picked":
     case "verified":
+    case "closed":
       return "success";
     case "exception":
     case "cancelled":
@@ -44,6 +50,11 @@ const canRespond = (row) => {
   return ["created", "vendor_confirmed", "pickup_assigned"].includes(st);
 };
 
+const canCommitQuantities = (row) => {
+  const st = normalizeStatus(row?.status);
+  return ["created", "vendor_confirmed", "pickup_assigned"].includes(st);
+};
+
 const canMarkReady = (row) => {
   const st = normalizeStatus(row?.status);
   return ["created", "vendor_confirmed", "pickup_assigned"].includes(st);
@@ -58,6 +69,8 @@ const ProcurementRequests = () => {
   const [rows, setRows] = useState([]);
   const [otpMap, setOtpMap] = useState({});
   const [notesMap, setNotesMap] = useState({});
+  const [commitMap, setCommitMap] = useState({});
+  const [attachmentMap, setAttachmentMap] = useState({});
   const [savingId, setSavingId] = useState("");
 
   const fetchRows = async () => {
@@ -76,10 +89,6 @@ const ProcurementRequests = () => {
 
   useEffect(() => {
     fetchRows();
-    const timer = setInterval(() => {
-      fetchRows();
-    }, 10000);
-    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
@@ -89,6 +98,26 @@ const ProcurementRequests = () => {
       for (const row of rows) {
         if (!next[row._id] && row.pickupOtp) {
           next[row._id] = String(row.pickupOtp);
+        }
+      }
+      return next;
+    });
+  }, [rows]);
+
+  useEffect(() => {
+    // Default commit = full shortage for each item (seller can reduce for partial supply).
+    setCommitMap((prev) => {
+      const next = { ...prev };
+      for (const row of rows) {
+        if (!row?._id) continue;
+        if (!next[row._id]) next[row._id] = {};
+        for (const item of row.items || []) {
+          const pid = String(item?.productId || "");
+          if (!pid) continue;
+          if (next[row._id][pid] === undefined || next[row._id][pid] === null) {
+            const shortage = Number(item?.shortageQty ?? item?.requiredQty ?? 0);
+            next[row._id][pid] = String(Math.max(0, shortage));
+          }
         }
       }
       return next;
@@ -117,6 +146,55 @@ const ProcurementRequests = () => {
     } finally {
       setSavingId("");
     }
+  };
+
+  const buildCommittedItemsPayload = (row) => {
+    const perRow = commitMap[row._id] || {};
+    return (row.items || [])
+      .map((it) => {
+        const pid = String(it.productId || "");
+        const raw = perRow[pid];
+        const committedQty = Math.max(0, Number(String(raw ?? "").trim() || 0));
+        return { productId: pid, committedQty };
+      })
+      .filter((x) => x.productId);
+  };
+
+  const commitQuantities = async (row) => {
+    const items = buildCommittedItemsPayload(row);
+    const committed = items.map((it) => Number(it.committedQty || 0));
+    const shortages = (row.items || []).map((it) =>
+      Number(it.shortageQty ?? it.requiredQty ?? 0),
+    );
+
+    if (committed.every((q) => q <= 0)) {
+      showToast(
+        "Committed quantity must be at least 1 for one item, or reject the request.",
+        "error",
+      );
+      return;
+    }
+
+    const fullyCommitted = committed.every((q, idx) => q >= (shortages[idx] || 0));
+    const action = fullyCommitted ? "accept" : "partial";
+    const attachment = String(attachmentMap[row._id] || "").trim();
+    const combinedNotes = [
+      String(notesMap[row._id] || "").trim(),
+      attachment ? `Attachment: ${attachment}` : "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+
+    await act(
+      `${row._id}:commit`,
+      () =>
+        sellerApi.respondPurchaseRequest(row._id, {
+          action,
+          notes: combinedNotes,
+          items,
+        }),
+      fullyCommitted ? "Request accepted" : "Partial quantities committed",
+    );
   };
 
   return (
@@ -206,13 +284,46 @@ const ProcurementRequests = () => {
                   {(row.items || []).map((item) => (
                     <div
                       key={`${row._id}-${item.productId}`}
-                      className="rounded-xl bg-slate-50 p-3 text-xs font-medium text-slate-700"
+                      className="flex items-center gap-4 rounded-xl bg-slate-50 p-3"
                     >
-                      <p className="font-bold text-slate-900">{item.productName}</p>
-                      <p className="mt-1">
-                        Required: {item.requiredQty} · Shortage: {item.shortageQty} · Committed:{" "}
-                        {item.committedQty || 0}
-                      </p>
+                      <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
+                        {item.mainImage ? (
+                          <img src={item.mainImage} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center bg-slate-100 text-slate-400">
+                            No Image
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-black text-slate-900">{item.productName}</p>
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                          <span>Qty: <span className="text-indigo-600">{item.requiredQty} {item.unit}</span></span>
+                          <span>Rate: <span className="text-emerald-600">₹{item.unitCost}</span></span>
+                          <span>Shortage: <span className="text-rose-500">{item.shortageQty}</span></span>
+                        </div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                            Commit
+                          </span>
+                          <Input
+                            value={commitMap[row._id]?.[String(item.productId)] ?? ""}
+                            onChange={(e) => {
+                              const nextVal = e.target.value.replace(/[^\d]/g, "").slice(0, 6);
+                              setCommitMap((prev) => ({
+                                ...prev,
+                                [row._id]: {
+                                  ...(prev[row._id] || {}),
+                                  [String(item.productId)]: nextVal,
+                                },
+                              }));
+                            }}
+                            disabled={!canCommitQuantities(row) || !isVerified}
+                            className="max-w-[110px]"
+                            placeholder="0"
+                          />
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -220,15 +331,12 @@ const ProcurementRequests = () => {
                 <div className="mt-4 grid gap-2 md:grid-cols-3">
                   <Button
                     onClick={() =>
-                      isVerified ? act(
-                        `${row._id}:accept`,
-                        () => sellerApi.respondPurchaseRequest(row._id, { action: "accept" }),
-                        "Request accepted",
-                      ) : showToast("Account pending approval", "error")
+                      isVerified ? commitQuantities(row) : showToast("Account pending approval", "error")
                     }
-                    disabled={!canRespond(row) || !isVerified}
+                    isLoading={savingId === `${row._id}:commit`}
+                    disabled={!canCommitQuantities(row) || !isVerified}
                   >
-                    Accept
+                    Commit Qty
                   </Button>
                   <Button
                     variant="danger"
@@ -239,6 +347,9 @@ const ProcurementRequests = () => {
                           sellerApi.respondPurchaseRequest(row._id, {
                             action: "reject",
                             rejectionReason: notesMap[row._id] || "Rejected by seller",
+                            notes: String(attachmentMap[row._id] || "").trim()
+                              ? `Attachment: ${String(attachmentMap[row._id] || "").trim()}`
+                              : "",
                           }),
                         "Request rejected",
                       ) : showToast("Account pending approval", "error")
@@ -273,6 +384,13 @@ const ProcurementRequests = () => {
                     }
                     placeholder="Notes / rejection reason"
                   />
+                  <Input
+                    value={attachmentMap[row._id] || ""}
+                    onChange={(e) =>
+                      setAttachmentMap((prev) => ({ ...prev, [row._id]: e.target.value }))
+                    }
+                    placeholder="Attachment URL (optional)"
+                  />
                   <div className="flex gap-2">
                     <Input
                       value={otpMap[row._id] || ""}
@@ -304,6 +422,13 @@ const ProcurementRequests = () => {
                     </Button>
                   </div>
                 </div>
+
+                {row.pickupPartnerName || row.pickupPartnerPhone ? (
+                  <p className="mt-2 text-xs font-semibold text-slate-600">
+                    Pickup Partner: {row.pickupPartnerName || "N/A"}{" "}
+                    {row.pickupPartnerPhone ? `(${row.pickupPartnerPhone})` : ""}
+                  </p>
+                ) : null}
                 {row.status === "pickup_assigned" && row.pickupOtp ? (
                   <p className="mt-2 text-xs font-semibold text-slate-600">
                     Current Pickup OTP: {row.pickupOtp}

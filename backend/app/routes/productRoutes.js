@@ -27,7 +27,6 @@ router.post(
     "/",
     verifyToken,
     allowRoles("seller", "admin"),
-    isAccountVerified,
     upload.fields([
         { name: 'mainImage', maxCount: 1 },
         { name: 'galleryImages', maxCount: 5 }
@@ -39,7 +38,6 @@ router.put(
     "/:id",
     verifyToken,
     allowRoles("seller", "admin"),
-    isAccountVerified,
     upload.fields([
         { name: 'mainImage', maxCount: 1 },
         { name: 'galleryImages', maxCount: 5 },
@@ -52,7 +50,6 @@ router.delete(
     "/:id",
     verifyToken,
     allowRoles("seller", "admin"),
-    isAccountVerified,
     deleteProduct
 );
 

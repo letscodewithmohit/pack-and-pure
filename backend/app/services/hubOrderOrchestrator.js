@@ -113,19 +113,29 @@ export const reserveHubInventory = async (allocations, hubId = HUB_ID) => {
           },
         );
       }
-      return false;
+      return { ok: false, reservedRows: [] };
     }
     reservedRows.push({ productId: row.productId, reserveQty: row.reserveQty });
   }
-  return true;
+  return { ok: true, reservedRows };
 };
 
 /**
  * Create procurement requests grouped by vendor for shortage items.
  */
-export const createAutoPurchaseRequests = async ({ order, shortages, hubId = HUB_ID }) => {
+export const createAutoPurchaseRequests = async ({
+  order,
+  shortages,
+  hubId = HUB_ID,
+  allowUnassigned = false,
+}) => {
   const normalizeMoney = (value) => Math.max(0, Number(Number(value || 0).toFixed(2)));
   const effectiveCatalogPrice = (row) => {
+    // Priority 1: Use purchasePrice if available (this is the true vendor cost/procurement rate)
+    const cost = Number(row?.purchasePrice || 0);
+    if (cost > 0) return cost;
+
+    // Fallback: Use salePrice or base price
     const sale = Number(row?.salePrice || 0);
     const base = Number(row?.price || 0);
     return sale > 0 && sale < base ? sale : base;
@@ -283,8 +293,21 @@ export const createAutoPurchaseRequests = async ({ order, shortages, hubId = HUB
     }
   }
 
+  const unassigned = enrichedShortages.filter((row) => !row.vendorId);
+  if (unassigned.length > 0 && !allowUnassigned) {
+    const names = unassigned
+      .map((u) => u?.baseProduct?.name || u?.productId)
+      .filter(Boolean)
+      .slice(0, 3)
+      .join(", ");
+    const suffix = unassigned.length > 3 ? "..." : "";
+    throw new Error(
+      `Some items are out of stock and cannot be procured right now: ${names}${suffix}`,
+    );
+  }
+
   const grouped = new Map();
-  for (const item of enrichedShortages) {
+  for (const item of enrichedShortages.filter((row) => row.vendorId)) {
     const groupKey = item.vendorId || "UNASSIGNED";
     if (!grouped.has(groupKey)) grouped.set(groupKey, []);
     grouped.get(groupKey).push(item);

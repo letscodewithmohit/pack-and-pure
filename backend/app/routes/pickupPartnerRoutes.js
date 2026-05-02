@@ -12,7 +12,9 @@ import {
   getMyPickupAssignments,
   markAssignmentPicked,
   markAssignmentHubDelivered,
+  uploadPickupProofImage,
 } from "../controller/pickupPartnerController.js";
+import upload from "../middleware/uploadMiddleware.js";
 
 const router = express.Router();
 
@@ -53,6 +55,13 @@ router.post(
   verifyToken,
   allowRoles("pickup_partner", "admin"),
   markAssignmentHubDelivered,
+);
+router.post(
+  "/my/proofs/upload",
+  verifyToken,
+  allowRoles("pickup_partner", "admin"),
+  upload.single("image"),
+  uploadPickupProofImage,
 );
 
 export default router;

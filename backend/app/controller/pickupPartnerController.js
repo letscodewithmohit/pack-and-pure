@@ -4,6 +4,7 @@ import handleResponse from "../utils/helper.js";
 import getPagination from "../utils/pagination.js";
 import { generateOTP, useRealSMS } from "../utils/otp.js";
 import { distanceMeters } from "../utils/geoUtils.js";
+import { uploadToCloudinary } from "../utils/cloudinary.js";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
@@ -337,6 +338,7 @@ export const getMyPickupAssignments = async (req, res) => {
         id: row.vendorId?._id || row.vendorId || null,
         name: row.vendorId?.shopName || row.vendorId?.name || "Vendor",
         phone: row.vendorId?.phone || "",
+        location: row.vendorId?.location || null,
       },
       products: (row.items || []).map((i) => ({
         productId: i.productId?._id || i.productId,
@@ -492,6 +494,26 @@ export const markAssignmentHubDelivered = async (req, res) => {
     await pr.save();
 
     return handleResponse(res, 200, "Marked delivered at hub", pr);
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+export const uploadPickupProofImage = async (req, res) => {
+  try {
+    const partnerId = req.user?.id;
+    if (!partnerId) return handleResponse(res, 401, "Unauthorized");
+
+    const { type = "vendor" } = req.query || {};
+    const normalized = String(type || "vendor").toLowerCase();
+    const folder = normalized === "hub" ? "pickup_hub_proofs" : "pickup_vendor_proofs";
+
+    if (!req.file?.buffer) {
+      return handleResponse(res, 400, "image file is required");
+    }
+
+    const url = await uploadToCloudinary(req.file.buffer, folder);
+    return handleResponse(res, 200, "Uploaded", { url });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }

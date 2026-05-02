@@ -15,19 +15,6 @@ import getPagination from "../utils/pagination.js";
 
 const DEFAULT_HUB_ID = process.env.DEFAULT_HUB_ID || "MAIN_HUB";
 
-const ALLOWED_STATUSES = new Set([
-  "created",
-  "vendor_confirmed",
-  "pickup_assigned",
-  "picked",
-  "hub_delivered",
-  "received_at_hub",
-  "verified",
-  "closed",
-  "cancelled",
-  "exception",
-]);
-
 const PR_DONE_STATUSES = new Set(["verified", "closed", "cancelled"]);
 
 const PICKUP_OTP_EXPIRY_MINUTES = Math.max(
@@ -215,6 +202,8 @@ const mapSellerRow = (reqDoc) => ({
   items: (reqDoc.items || []).map((item) => ({
     productId: item.productId?._id || item.productId || null,
     productName: item.productId?.name || "Product",
+    mainImage: item.productId?.mainImage || null,
+    unit: item.productId?.unit || "Unit",
     requiredQty: Number(item.requiredQty || 0),
     shortageQty: Number(item.shortageQty || 0),
     committedQty: Number(item.committedQty || 0),
@@ -234,7 +223,8 @@ export const getPurchaseRequests = async (req, res) => {
       maxLimit: 100,
     });
 
-    const query = { hubId: String(hubId) };
+    const query = {};
+    if (hubId && hubId !== "all") query.hubId = String(hubId);
     if (status && status !== "all") query.status = status;
     if (orderId && mongoose.Types.ObjectId.isValid(orderId)) query.orderId = orderId;
     if (requestId) query.requestId = { $regex: String(requestId), $options: "i" };
@@ -286,7 +276,7 @@ export const createManualPurchaseRequest = async (req, res) => {
 
     const [vendor, product] = await Promise.all([
       Seller.findById(vendorId).select("_id shopName name"),
-      Product.findById(productId).select("_id name status price salePrice"),
+      Product.findById(productId).select("_id name status price salePrice purchasePrice"),
     ]);
 
     if (!vendor) return handleResponse(res, 404, "Vendor not found");
@@ -302,12 +292,7 @@ export const createManualPurchaseRequest = async (req, res) => {
       retries += 1;
     }
 
-    const unitCost = toMoney(
-      Number(product?.salePrice || 0) > 0 &&
-        Number(product?.salePrice || 0) < Number(product?.price || 0)
-        ? product.salePrice
-        : product.price,
-    );
+    const unitCost = toMoney(product?.purchasePrice || 0);
 
     const doc = await PurchaseRequest.create({
       requestId,
@@ -465,6 +450,26 @@ export const receiveAtHub = async (req, res) => {
         incoming.purchaseUnitCost !== undefined ? incoming.purchaseUnitCost : fallbackCost,
       );
 
+      // --- SELLER STOCK VALIDATION ---
+      // Ensure the seller has enough stock before we 'receive' it at the hub
+      const sellerId = pr.vendorId;
+      const targetSellerProductId = line.selectedSellerProductId || productId;
+      
+      if (sellerId) {
+        const sellerProduct = await Product.findOne({ _id: targetSellerProductId, sellerId: sellerId });
+        if (sellerProduct) {
+          const currentSellerStock = Number(sellerProduct.stock || 0);
+          if (currentSellerStock < acceptedQty) {
+             return handleResponse(res, 400, `Seller has insufficient stock (${currentSellerStock}) for ${line.product || 'this item'}. Cannot go negative.`);
+          }
+          
+          // Deduct from seller's stock as it's now 'shipped/received' by Hub
+          sellerProduct.stock = currentSellerStock - acceptedQty;
+          await sellerProduct.save();
+          console.log(`[Stock] Deducted ${acceptedQty} from Seller ${sellerId}. Remaining: ${sellerProduct.stock}`);
+        }
+      }
+
       const hubRow = await HubInventory.findOne({
         hubId: pr.hubId || DEFAULT_HUB_ID,
         productId,
@@ -474,19 +479,16 @@ export const receiveAtHub = async (req, res) => {
         const prevQty = Math.max(0, Number(hubRow.availableQty || 0));
         const prevAvgCost = Math.max(0, Number(hubRow.avgPurchaseCost || hubRow.lastPurchaseCost || 0));
         const nextQty = prevQty + acceptedQty;
-        const weightedAvgCost =
-          nextQty > 0 ? toMoney((prevAvgCost * prevQty + incomingCost * acceptedQty) / nextQty) : 0;
-        const marginType = resolveMarginType(hubRow.marginType || DEFAULT_MARGIN_TYPE);
-        const marginValue = resolveMarginValue(
-          hubRow.marginValue !== undefined ? hubRow.marginValue : DEFAULT_MARGIN_VALUE,
-        );
-        const sellPrice = computeSellPrice(weightedAvgCost || incomingCost, marginType, marginValue);
+        const weightedAvgCost = nextQty > 0 
+          ? toMoney((prevQty * prevAvgCost + acceptedQty * incomingCost) / nextQty) 
+          : incomingCost;
+          
+        const masterProduct = await Product.findById(productId).select('price salePrice');
+        const sellPrice = masterProduct?.price || masterProduct?.salePrice || incomingCost;
 
         hubRow.reservedQty = Math.max(0, Number(hubRow.reservedQty || 0) + acceptedQty);
         hubRow.lastPurchaseCost = incomingCost;
         hubRow.avgPurchaseCost = weightedAvgCost;
-        hubRow.marginType = marginType;
-        hubRow.marginValue = marginValue;
         hubRow.sellPrice = sellPrice;
         hubRow.priceUpdatedAt = new Date();
         if (hubRow.availableQty <= 0) hubRow.status = "out_of_stock";
@@ -495,9 +497,9 @@ export const receiveAtHub = async (req, res) => {
         else hubRow.status = "healthy";
         await hubRow.save();
       } else {
-        const marginType = resolveMarginType(DEFAULT_MARGIN_TYPE);
-        const marginValue = resolveMarginValue(DEFAULT_MARGIN_VALUE);
-        const sellPrice = computeSellPrice(incomingCost, marginType, marginValue);
+        const masterProduct = await Product.findById(productId).select('price salePrice');
+        const sellPrice = masterProduct?.price || masterProduct?.salePrice || incomingCost;
+
         await HubInventory.create({
           hubId: pr.hubId || DEFAULT_HUB_ID,
           productId,
@@ -506,8 +508,6 @@ export const receiveAtHub = async (req, res) => {
           reorderLevel: 10,
           lastPurchaseCost: incomingCost,
           avgPurchaseCost: incomingCost,
-          marginType,
-          marginValue,
           sellPrice,
           priceUpdatedAt: new Date(),
           status: acceptedQty > 0 ? "healthy" : "out_of_stock",
@@ -537,6 +537,29 @@ export const receiveAtHub = async (req, res) => {
 
     pr.status = "received_at_hub";
     await pr.save();
+
+    // Trace: Create a PENDING transaction immediately upon receipt for financial visibility
+    try {
+      let totalValue = normalized.reduce((acc, item) => acc + (item.acceptedQty * item.purchaseUnitCost), 0);
+      if (totalValue > 0) {
+        await Transaction.create({
+          user: pr.vendorId,
+          userModel: "Seller",
+          order: pr.orderId || undefined,
+          type: "Supply Earning",
+          amount: totalValue,
+          status: "Pending", // Visible but not yet withdrawable
+          reference: `PR-REC-${pr.requestId}`,
+          meta: {
+            purchaseRequestId: pr._id,
+            receivedAt: new Date(),
+          }
+        });
+        console.log(`[Trace] Created Pending Supply Earning for Seller ${pr.vendorId}: ₹${totalValue}`);
+      }
+    } catch (txnErr) {
+      console.error("[receiveAtHub] Transaction creation failed:", txnErr.message);
+    }
 
     if (pr.pickupPartnerId) {
       const openCount = await PurchaseRequest.countDocuments({
@@ -581,30 +604,83 @@ export const verifyInward = async (req, res) => {
     if (notes !== undefined) pr.notes = String(notes || "");
     await pr.save();
 
-    // Financial Settlement: If verified, credit the Seller for the procurement cost
+    // Move stock from Reserved to Available in Hub Inventory
+    if (verified && inward.receivedItems) {
+      for (const item of inward.receivedItems) {
+        const productId = String(item.productId?._id || item.productId);
+        const acceptedQty = Number(item.acceptedQty || 0);
+
+        if (acceptedQty > 0) {
+          const hubRow = await HubInventory.findOne({
+            hubId: pr.hubId || DEFAULT_HUB_ID,
+            productId
+          });
+
+          if (hubRow) {
+            // Deduct from reserved and add to available
+            hubRow.reservedQty = Math.max(0, (hubRow.reservedQty || 0) - acceptedQty);
+            hubRow.availableQty = (hubRow.availableQty || 0) + acceptedQty;
+            
+            // Re-sync price with Master Catalog just in case
+            const masterProduct = await Product.findById(productId);
+            if (masterProduct) {
+              hubRow.sellPrice = masterProduct.price || masterProduct.salePrice || hubRow.sellPrice;
+              
+              // Also sync Master Product stock
+              masterProduct.stock = hubRow.availableQty;
+              await masterProduct.save();
+              
+              // Propagation: Sync Master Price to all linked seller products (Downward Sync)
+              // This ensures if Admin changed master price during inwarding, it propagates.
+              const { propagatePriceUpdates } = await import('./productController.js');
+              if (propagatePriceUpdates) {
+                 await propagatePriceUpdates(masterProduct);
+              }
+            }
+
+            // Update status based on new available quantity
+            if (hubRow.availableQty <= 0) hubRow.status = "out_of_stock";
+            else if (hubRow.availableQty <= Number(hubRow.reorderLevel || 0)) hubRow.status = "low_stock";
+            else hubRow.status = "healthy";
+
+            await hubRow.save();
+            console.log(`[Inward] Verified stock for ${productId}: Moved ${acceptedQty} to Available. New total: ${hubRow.availableQty}`);
+          }
+        }
+      }
+    }
+
+    // Financial Settlement: If verified, update the Pending transaction to 'Settled'
     if (verified && pr.vendorId) {
-      let totalProcurementCost = 0;
-      if (inward.receivedItems && inward.receivedItems.length > 0) {
-        totalProcurementCost = inward.receivedItems.reduce((acc, item) => {
+      const existingTxn = await Transaction.findOne({
+        user: pr.vendorId,
+        reference: `PR-REC-${pr.requestId}`,
+        status: "Pending"
+      });
+
+      if (existingTxn) {
+        existingTxn.status = "Settled";
+        existingTxn.meta.verifiedAt = new Date();
+        await existingTxn.save();
+        console.log(`[Settlement] Updated transaction to Settled for Seller ${pr.vendorId}: PR ${pr.requestId}`);
+      } else {
+        // Fallback: If for some reason receipt didn't create a txn, create it now
+        let totalProcurementCost = (inward.receivedItems || []).reduce((acc, item) => {
           return acc + (Number(item.acceptedQty || 0) * Number(item.purchaseUnitCost || 0));
         }, 0);
-      }
 
-      if (totalProcurementCost > 0) {
-        await Transaction.create({
-          user: pr.vendorId,
-          userModel: "Seller",
-          order: pr.orderId || undefined,
-          type: "Supply Earning",
-          amount: totalProcurementCost,
-          status: "Settled",
-          reference: `PR-SETTLE-${pr.requestId}`,
-          meta: {
-            purchaseRequestId: pr._id,
-            verifiedAt: new Date(),
-          }
-        });
-        console.log(`[Settlement] Created Supply Earning for Seller ${pr.vendorId}: ₹${totalProcurementCost}`);
+        if (totalProcurementCost > 0) {
+          await Transaction.create({
+            user: pr.vendorId,
+            userModel: "Seller",
+            order: pr.orderId || undefined,
+            type: "Supply Earning",
+            amount: totalProcurementCost,
+            status: "Settled",
+            reference: `PR-SETTLE-${pr.requestId}`,
+            meta: { purchaseRequestId: pr._id, verifiedAt: new Date() }
+          });
+        }
       }
     }
 

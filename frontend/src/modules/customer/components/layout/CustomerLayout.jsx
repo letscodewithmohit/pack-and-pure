@@ -4,7 +4,6 @@ import Footer from './Footer';
 import BottomNav from './BottomNav';
 import MiniCart from '../shared/MiniCart';
 import ProductDetailSheet from '../shared/ProductDetailSheet';
-import MobileFooterMessage from './MobileFooterMessage';
 import { useProductDetail } from '../../context/ProductDetailContext';
 import { cn } from '@/lib/utils';
 import { useLocation } from 'react-router-dom';
@@ -25,15 +24,10 @@ const CustomerLayout = ({ children, showHeader: showHeaderProp, fullHeight = fal
     const showBottomNav = showBottomNavProp !== undefined ? showBottomNavProp : !hideBottomNavRoutes.includes(path);
     const showCart = showCartProp !== undefined ? showCartProp : (!hideCartRoutes.includes(path) && !path.startsWith('/orders'));
 
-    // Condition to hide the MobileFooterMessage ("India's last minute app") on specific pages
-    const hideFooterMessageRoutes = ['/profile', '/profile/edit'];
-    const showFooterMessage = showBottomNav && !hideFooterMessageRoutes.includes(path) && !path.startsWith('/category');
-
     // Hide elements on mobile only when product detail is open
     // On desktop, we want to keep the header visible even if the modal is open
     const finalShowHeaderMobile = showHeader && !isProductDetailOpen;
     const finalShowBottomNavMobile = showBottomNav && !isProductDetailOpen;
-    const finalShowFooterMessageMobile = showFooterMessage && !isProductDetailOpen;
 
     return (
         <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
@@ -60,11 +54,6 @@ const CustomerLayout = ({ children, showHeader: showHeaderProp, fullHeight = fal
 
             <div className="hidden md:block">
                 <Footer />
-            </div>
-
-            {/* Mobile Footer Message logic */}
-            <div className="md:hidden">
-                {finalShowFooterMessageMobile && <MobileFooterMessage />}
             </div>
 
             {/* Bottom Nav logic */}

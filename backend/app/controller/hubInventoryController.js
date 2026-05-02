@@ -45,6 +45,7 @@ export const getHubInventory = async (req, res) => {
     const products = await Product.find({ _id: { $in: productIds } })
       .select("name mainImage categoryId sellerId")
       .populate("categoryId", "name")
+      .populate("sellerId", "shopName name")
       .lean();
     const productMap = new Map(products.map((p) => [String(p._id), p]));
 
@@ -60,7 +61,8 @@ export const getHubInventory = async (req, res) => {
         productName: product?.name || "Unknown Product",
         imageUrl: product?.mainImage || "",
         category: product?.categoryId?.name || "N/A",
-        sellerId: product?.sellerId || null,
+        sellerId: product?.sellerId?._id || product?.sellerId || null,
+        sellerName: product?.sellerId?.shopName || product?.sellerId?.name || "N/A",
         hubStockQuantity: availableQty,
         minimumStockAlert: reorderLevel,
         lastPurchaseCost: Number(row.lastPurchaseCost || 0),
@@ -172,6 +174,14 @@ export const upsertHubInventory = async (req, res) => {
 
     row.status = normalizeStatus(Number(row.availableQty || 0), Number(row.reorderLevel || 0));
     await row.save();
+
+    // Catalog Sync
+    await Product.findByIdAndUpdate(productId, {
+      $set: {
+        salePrice: Number(row.sellPrice || 0),
+        purchasePrice: Number(row.avgPurchaseCost || row.lastPurchaseCost || 0)
+      }
+    }).catch(err => console.warn("Catalog sync failed:", err.message));
 
     return handleResponse(res, 200, "Hub inventory upserted", row);
   } catch (error) {

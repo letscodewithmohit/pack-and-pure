@@ -2,6 +2,7 @@ import Order from "../models/order.js";
 import mongoose from "mongoose";
 import Cart from "../models/cart.js";
 import Product from "../models/product.js";
+import HubInventory from "../models/hubInventory.js";
 import Transaction from "../models/transaction.js";
 import StockHistory from "../models/stockHistory.js";
 import Notification from "../models/notification.js";
@@ -254,46 +255,39 @@ export const placeOrder = async (req, res) => {
     });
     await newOrder.save();
 
-    await createNotification({
-      recipient: customerId,
-      recipientModel: "Customer",
-      title: "Order Placed",
-      message: `Your order #${orderId} has been placed successfully.`,
-      type: "order",
-      data: { orderId, mongoOrderId: newOrder._id },
-    });
-
-    if (paymentMethod === "wallet") {
-      const debitAmount = Number(pricing?.total || 0);
-      customer.walletBalance = Math.max(
-        0,
-        Number(customer.walletBalance || 0) - debitAmount,
-      );
-      await customer.save();
-      await Transaction.create({
-        user: customer._id,
-        userModel: "User",
-        order: newOrder._id,
-        type: "Order Payment",
-        amount: -Math.abs(debitAmount),
-        status: "Settled",
-        reference: `WALLET-DEBIT-${orderId}`,
-      });
-    }
-
     // Reserve whatever hub stock is currently available (full or partial).
-    const reserved = await reserveHubInventory(hubPlan.allocations, hubPlan.hubId);
-    const finalPlan = reserved
+    const reserveResult = await reserveHubInventory(hubPlan.allocations, hubPlan.hubId);
+    const finalPlan = reserveResult.ok
       ? hubPlan
       : await planHubFulfillment(orderItems, hubPlan.hubId);
 
-    const purchaseRequests = finalPlan.shortages.length
-      ? await createAutoPurchaseRequests({
-          order: newOrder,
-          shortages: finalPlan.shortages,
-          hubId: finalPlan.hubId,
-        })
-      : [];
+    let purchaseRequests = [];
+    try {
+      purchaseRequests = finalPlan.shortages.length
+        ? await createAutoPurchaseRequests({
+            order: newOrder,
+            shortages: finalPlan.shortages,
+            hubId: finalPlan.hubId,
+          })
+        : [];
+    } catch (procurementErr) {
+      // Roll back any hub reservations and abort the order when procurement is impossible.
+      if (reserveResult.ok && Array.isArray(reserveResult.reservedRows)) {
+        for (const applied of reserveResult.reservedRows) {
+          // Best-effort rollback; do not throw if rollback fails.
+          // eslint-disable-next-line no-await-in-loop
+          await HubInventory.findOneAndUpdate(
+            { hubId: hubPlan.hubId, productId: applied.productId },
+            { $inc: { availableQty: applied.reserveQty, reservedQty: -applied.reserveQty } },
+          );
+          // eslint-disable-next-line no-await-in-loop
+          await Product.findByIdAndUpdate(applied.productId, { $inc: { stock: applied.reserveQty } });
+        }
+      }
+
+      await Order.deleteOne({ _id: newOrder._id });
+      return handleResponse(res, 400, procurementErr.message || "Unable to procure items for this order.");
+    }
 
     if (finalPlan.shortages.length === 0) {
       try {
@@ -337,6 +331,30 @@ export const placeOrder = async (req, res) => {
       finalPlan.shortages.length > 0 ? "procurement_required" : "inventory_reserved";
     newOrder.procurementRequired = finalPlan.shortages.length > 0;
     await newOrder.save();
+
+    await createNotification({
+      recipient: customerId,
+      recipientModel: "Customer",
+      title: "Order Placed",
+      message: `Your order #${orderId} has been placed successfully.`,
+      type: "order",
+      data: { orderId, mongoOrderId: newOrder._id },
+    });
+
+    if (paymentMethod === "wallet") {
+      const debitAmount = Number(validatedPricing?.total || pricing?.total || 0);
+      customer.walletBalance = Math.max(0, Number(customer.walletBalance || 0) - debitAmount);
+      await customer.save();
+      await Transaction.create({
+        user: customer._id,
+        userModel: "User",
+        order: newOrder._id,
+        type: "Order Payment",
+        amount: -Math.abs(debitAmount),
+        status: "Settled",
+        reference: `WALLET-DEBIT-${orderId}`,
+      });
+    }
 
     hubMeta = {
       mode: "hub_first",
@@ -1032,8 +1050,29 @@ export const updateOrderStatus = async (req, res) => {
     // -----------------------------
 
     const oldStatus = order.status;
+
+    // Manual rider assignment (Admin fallback when auto-assign fails)
+    if (deliveryBoyId && role === "admin" && order.workflowVersion >= 2) {
+      if (String(order.status || "").toLowerCase() === "cancelled") {
+        return handleResponse(res, 400, "Cannot assign rider to a cancelled order.");
+      }
+      if (String(order.status || "").toLowerCase() === "delivered") {
+        return handleResponse(res, 400, "Cannot assign rider to a delivered order.");
+      }
+      if (order.deliveryBoy) {
+        return handleResponse(res, 400, "Order already assigned to a delivery partner.");
+      }
+      order.deliveryBoy = deliveryBoyId;
+      order.workflowStatus = WORKFLOW_STATUS.DELIVERY_ASSIGNED;
+      order.assignedAt = new Date();
+
+      // Keep legacy status flow consistent if order is still pending.
+      if (String(order.status || "").toLowerCase() === "pending") {
+        order.status = "confirmed";
+      }
+    }
+
     if (status) order.status = status;
-    if (deliveryBoyId) order.deliveryBoy = deliveryBoyId;
 
     // Legacy orders: keep rider UI step in sync with status (delivery app refresh-safe)
     if (

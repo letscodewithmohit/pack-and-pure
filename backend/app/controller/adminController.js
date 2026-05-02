@@ -305,6 +305,62 @@ export const getActiveFleet = async (req, res) => {
 };
 
 /* ===============================
+   REPORTS (Minimal)
+================================ */
+export const getReports = async (req, res) => {
+  try {
+    const { from, to } = req.query || {};
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+
+    const range =
+      fromDate instanceof Date &&
+      !Number.isNaN(fromDate.getTime()) &&
+      toDate instanceof Date &&
+      !Number.isNaN(toDate.getTime())
+        ? { createdAt: { $gte: fromDate, $lte: toDate } }
+        : {};
+
+    const [orderCounts, paymentCounts] = await Promise.all([
+      Order.aggregate([
+        { $match: range },
+        { $group: { _id: "$status", count: { $sum: 1 } } },
+      ]),
+      Order.aggregate([
+        { $match: range },
+        {
+          $group: {
+            _id: { $toLower: { $ifNull: ["$payment.method", "unknown"] } },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+    ]);
+
+    const statusCounts = orderCounts.reduce((acc, row) => {
+      acc[String(row._id || "unknown")] = Number(row.count || 0);
+      return acc;
+    }, {});
+
+    const paymentMethodCounts = paymentCounts.reduce((acc, row) => {
+      acc[String(row._id || "unknown")] = Number(row.count || 0);
+      return acc;
+    }, {});
+
+    return handleResponse(res, 200, "Reports fetched", {
+      range: {
+        from: fromDate && !Number.isNaN(fromDate.getTime()) ? fromDate : null,
+        to: toDate && !Number.isNaN(toDate.getTime()) ? toDate : null,
+      },
+      statusCounts,
+      paymentMethodCounts,
+    });
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+/* ===============================
    GET ADMIN WALLET DATA
 ================================ */
 export const getAdminWalletData = async (req, res) => {

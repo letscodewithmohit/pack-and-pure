@@ -35,7 +35,8 @@ import {
     updateCustomerCodPolicy,
     approveSeller,
     rejectSeller,
-    getSellerById
+    getSellerById,
+    getReports
 } from "../controller/adminController.js";
 
 
@@ -132,6 +133,7 @@ router.get("/delivery-cash", verifyToken, allowRoles("admin"), getDeliveryCashBa
 router.get("/rider-cash-details/:id", verifyToken, allowRoles("admin"), getRiderCashDetails);
 router.post("/settle-cash", verifyToken, allowRoles("admin"), settleRiderCash);
 router.get("/cash-history", verifyToken, allowRoles("admin"), getCashSettlementHistory);
+router.get("/reports", verifyToken, allowRoles("admin"), getReports);
 
 // Seller Withdrawal Management
 router.get("/seller-withdrawals", verifyToken, allowRoles("admin"), getSellerWithdrawals);

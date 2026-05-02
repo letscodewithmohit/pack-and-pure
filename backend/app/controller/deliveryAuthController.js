@@ -108,7 +108,7 @@ export const loginDelivery = async (req, res) => {
         const delivery = await Delivery.findOne({ phone });
 
         if (!delivery) {
-            return handleResponse(res, 404, "Delivery partner not found. Please signup first.");
+            return handleResponse(res, 400, "Delivery partner not found. Please signup first.");
         }
 
         const otp = generateOTP();

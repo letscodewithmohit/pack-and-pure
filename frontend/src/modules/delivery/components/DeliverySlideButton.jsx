@@ -70,7 +70,7 @@ const DeliverySlideButton = ({
       if (errorCode === "PROXIMITY_OUT_OF_RANGE") {
         const details = error.response?.data?.error?.details;
         const distance = details?.currentDistance;
-        const range = details?.requiredRange || "0-120m";
+        const range = details?.requiredRange || "reach";
         
         toast.error(
           `You are too ${distance > 120 ? "far" : "close"}. You must be within ${range} of the delivery location.`,

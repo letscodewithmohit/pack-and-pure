@@ -77,9 +77,10 @@ export async function generateDeliveryOtp(orderId, deliveryLocation) {
     }
 
     if (!proximityCheck.inRange) {
+      const threshold = parseInt(process.env.PROXIMITY_THRESHOLD_METERS || "5000", 10);
       return {
         success: false,
-        error: `Delivery person must be within 0-120 meters of delivery location. Current distance: ${Math.round(proximityCheck.distance)}m`
+        error: `Delivery person must be within 0-${threshold} meters of delivery location. Current distance: ${Math.round(proximityCheck.distance)}m`
       };
     }
 

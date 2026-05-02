@@ -234,19 +234,46 @@ const ProductManagement = () => {
         return;
       }
       const data = new FormData();
-      Object.keys(formData).forEach(key => {
-        if (key !== 'mainImage' && key !== 'galleryImages' && key !== 'variants') {
-          data.append(key, formData[key]);
+      
+      // Explicitly append only recognized fields to avoid "Unexpected field" error
+      const fields = [
+        'name', 'slug', 'sku', 'description', 'price', 'salePrice', 
+        'stock', 'lowStockAlert', 'unit', 'tags', 'weight', 
+        'brand', 'shelfLife', 'countryOfOrigin', 'fssaiLicense', 
+        'customerCare', 'masterProductId'
+      ];
+
+      fields.forEach(field => {
+        if (formData[field] !== undefined && formData[field] !== null) {
+          data.append(field, formData[field]);
         }
       });
+
+      // SYNC: Map seller's price to purchasePrice (SOP)
+      data.append('purchasePrice', Number(formData.price) || 0);
+
+      // Special handling for IDs to match backend naming convention if necessary
       data.append("headerId", formData.header);
       data.append("categoryId", formData.category);
       data.append("subcategoryId", formData.subcategory);
-      data.append("variants", JSON.stringify(formData.variants));
+      
+      // JSON strings - Ensure variants also have purchasePrice
+      const syncedVariants = (formData.variants || []).map(v => ({
+         ...v,
+         purchasePrice: Number(v.price || formData.price) || 0,
+         // We keep v.price as a placeholder for now to avoid breaking UI components
+      }));
+      data.append("variants", JSON.stringify(syncedVariants));
 
-      if (formData.mainImageFile) data.append("mainImage", formData.mainImageFile);
-      if (formData.galleryFiles?.length > 0) {
-        formData.galleryFiles.forEach((file) => data.append("galleryImages", file));
+      // Files - Use names defined in backend upload.fields
+      if (formData.mainImageFile) {
+        data.append("mainImage", formData.mainImageFile);
+      }
+      
+      if (formData.galleryFiles && formData.galleryFiles.length > 0) {
+        formData.galleryFiles.forEach((file) => {
+          data.append("galleryImages", file);
+        });
       }
 
       if (editingItem) {
@@ -306,7 +333,7 @@ const ProductManagement = () => {
         countryOfOrigin: item.countryOfOrigin || "",
         fssaiLicense: item.fssaiLicense || "",
         customerCare: item.customerCare || "",
-        masterProductId: item.masterProductId || "",
+        masterProductId: item.masterProductId?._id || item.masterProductId || "",
         mainImage: item.mainImage || null,
         galleryImages: item.galleryImages || [],
         variants: (item.variants && item.variants.length > 0) ? item.variants.map(v => ({ ...v, id: v._id || Date.now() })) : [
@@ -605,11 +632,12 @@ const ProductManagement = () => {
                   {modalTab === "pricing" && (
                     <div className="space-y-6 animate-in fade-in slide-in-from-right-2">
                       <div className="grid grid-cols-2 gap-6">
-                        <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">Price (₹)</label>
-                          <input type="number" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold outline-none" />
+                        <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">Supply Price (₹)</label>
+                          <input type="number" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value, salePrice: e.target.value })} className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold outline-none" />
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Hub procurement cost</p>
                         </div>
-                        <div className="space-y-1.5"><label className="text-xs font-bold text-emerald-600 uppercase tracking-widest ml-1">Sale Price (₹)</label>
-                          <input type="number" value={formData.salePrice} onChange={e => setFormData({ ...formData, salePrice: e.target.value })} className="w-full px-4 py-2.5 bg-emerald-50 border-none rounded-xl text-sm font-bold text-emerald-700 outline-none" />
+                        <div className="space-y-1.5"><label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Sale Price (auto)</label>
+                          <input type="number" value={formData.salePrice} readOnly className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-500 outline-none cursor-not-allowed" />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-6">

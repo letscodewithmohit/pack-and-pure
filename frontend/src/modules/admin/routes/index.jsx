@@ -108,6 +108,7 @@ const AdminSettings = React.lazy(() => import("../pages/AdminSettings"));
 const EnvSettings = React.lazy(() => import("../pages/EnvSettings"));
 const AdminProfile = React.lazy(() => import("../pages/AdminProfile"));
 const HubSettings = React.lazy(() => import("../pages/HubSettings"));
+const Reports = React.lazy(() => import("../pages/Reports"));
 
 const navItems = [
   {
@@ -239,6 +240,12 @@ const navItems = [
     color: "red",
   },
   {
+    label: "Reports",
+    path: "/admin/reports",
+    icon: Sparkles,
+    color: "indigo",
+  },
+  {
     label: "Settings",
     path: "/admin/settings",
     icon: Settings,
@@ -308,6 +315,7 @@ const AdminRoutes = () => {
         <Route path="/orders/:status" element={<OrdersList />} />
         <Route path="/orders/view/:orderId" element={<OrderDetail />} />
         <Route path="/billing" element={<BillingCharges />} />
+        <Route path="/reports" element={<Reports />} />
         <Route path="/settings" element={<AdminSettings />} />
         <Route path="/hub-settings" element={<HubSettings />} />
         <Route path="/env" element={<EnvSettings />} />

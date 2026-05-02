@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import Card from '@shared/components/ui/Card';
 import Badge from '@shared/components/ui/Badge';
 import Pagination from '@shared/components/ui/Pagination';
+import Modal from '@shared/components/ui/Modal';
 import { adminApi } from '../services/adminApi';
 import {
     Search,
@@ -42,6 +43,10 @@ const OrdersList = () => {
     const [pageSize, setPageSize] = useState(25);
     const [total, setTotal] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
+    const [assignOpen, setAssignOpen] = useState(false);
+    const [assignOrder, setAssignOrder] = useState(null);
+    const [deliveryPartners, setDeliveryPartners] = useState([]);
+    const [selectedRiderId, setSelectedRiderId] = useState("");
 
     const fetchOrders = async (requestedPage = 1) => {
         setIsLoading(true);
@@ -52,20 +57,32 @@ const OrdersList = () => {
             if (response.data.success) {
                 const payload = response.data.result || {};
                 const dbOrders = Array.isArray(payload.items) ? payload.items : (response.data.results || []);
-                const formatted = dbOrders.map(o => ({
-                    id: o.orderId,
-                    _id: o._id,
-                    customer: o.customer?.name || 'Unknown',
-                    seller: o.seller?.shopName || 'Unknown',
-                    items: o.items?.length || 0,
-                    amount: o.pricing?.total || 0,
-                    status: getLegacyStatusFromOrder(o),
-                    workflowStatus: o.workflowStatus,
-                    workflowVersion: o.workflowVersion,
-                    returnStatus: o.returnStatus,
-                    date: new Date(o.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
-                    payment: o.payment?.method === 'cod' ? 'COD' : 'Digital',
-                }));
+                const formatted = dbOrders.map(o => {
+                    const itemProfit = (o.items || []).reduce((sum, item) => {
+                        const sellPrice = item.price || 0;
+                        const buyPrice = item.purchasePrice || 0;
+                        return sum + ((sellPrice - buyPrice) * (item.quantity || 1));
+                    }, 0);
+                    
+                    const adminEarning = itemProfit + (o.pricing?.platformFee || 0);
+
+                    return {
+                        id: o.orderId,
+                        _id: o._id,
+                        customer: o.customer?.name || 'Unknown',
+                        seller: o.seller?.shopName || 'Unknown',
+                        items: o.items?.length || 0,
+                        amount: o.pricing?.total || 0,
+                        earning: adminEarning,
+                        status: getLegacyStatusFromOrder(o),
+                        workflowStatus: o.workflowStatus,
+                        workflowVersion: o.workflowVersion,
+                        returnStatus: o.returnStatus,
+                        deliveryBoyId: o.deliveryBoy?._id || o.deliveryBoy || null,
+                        date: new Date(o.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
+                        payment: o.payment?.method === 'cod' ? 'COD' : 'Digital',
+                    };
+                });
                 setOrders(formatted);
                 if (typeof payload.total === 'number') {
                     setTotal(payload.total);
@@ -108,14 +125,15 @@ const OrdersList = () => {
     );
 
     const stats = useMemo(() => {
-        const totalEarnings = safeOrders.reduce((sum, o) => sum + o.amount, 0);
+        const totalProfit = safeOrders.reduce((sum, o) => sum + (o.earning || 0), 0);
+        const totalRevenue = safeOrders.reduce((sum, o) => sum + (o.amount || 0), 0);
         const activeOrders = safeOrders.filter(o =>
             ['pending', 'confirmed', 'packed', 'out_for_delivery'].includes(o.status),
         ).length;
 
         return [
-            { label: 'Total Earnings', value: `₹${totalEarnings.toLocaleString('en-IN')}`, trend: '+12.5%', icon: IndianRupee, color: 'emerald' },
-            { label: 'Active Orders', value: activeOrders, trend: '+5', icon: ShoppingBag, color: 'blue' },
+            { label: 'Net Profit', value: `₹${totalProfit.toLocaleString('en-IN')}`, trend: '+12.5%', icon: IndianRupee, color: 'emerald' },
+            { label: 'Total Revenue', value: `₹${totalRevenue.toLocaleString('en-IN')}`, trend: '+8.2%', icon: ShoppingBag, color: 'blue' },
             { label: 'Average Prep Time', value: '18m', trend: '-2m', icon: Clock, color: 'amber' },
             { label: 'Delivery Rate', value: '98.2%', trend: '+0.4%', icon: CheckCircle2, color: 'fuchsia' },
         ];
@@ -161,6 +179,33 @@ const OrdersList = () => {
 
     const handleExport = () => {
         showToast('Exporting order data archive...', 'info');
+    };
+
+    const openAssignModal = async (order) => {
+        setAssignOrder(order);
+        setAssignOpen(true);
+        try {
+            const res = await adminApi.getDeliveryPartners({ verified: "true", limit: 200 });
+            const payload = res.data?.result || res.data?.results || {};
+            const items = Array.isArray(payload.items) ? payload.items : (Array.isArray(payload) ? payload : []);
+            setDeliveryPartners(items);
+            if (!selectedRiderId && items[0]?._id) setSelectedRiderId(items[0]._id);
+        } catch (e) {
+            setDeliveryPartners([]);
+        }
+    };
+
+    const submitAssign = async () => {
+        if (!assignOrder?.id || !selectedRiderId) return;
+        try {
+            await adminApi.updateOrderStatus(assignOrder.id, { deliveryBoyId: selectedRiderId });
+            showToast("Delivery partner assigned", "success");
+            setAssignOpen(false);
+            setAssignOrder(null);
+            await fetchOrders(page);
+        } catch (e) {
+            showToast(e?.response?.data?.message || "Failed to assign delivery partner", "error");
+        }
     };
 
     const pageTitle = status === 'all' ? 'All Orders' : status.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
@@ -245,6 +290,7 @@ const OrdersList = () => {
                                 <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Seller</th>
                                 <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
                                 <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Amount</th>
+                                <th className="px-4 py-5 text-[10px] font-black text-emerald-600 uppercase tracking-widest text-right">Admin Earning</th>
                                 <th className="px-4 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Action</th>
                             </tr>
                         </thead>
@@ -319,6 +365,12 @@ const OrdersList = () => {
                                         </div>
                                     </td>
                                     <td className="px-4 py-5 text-right">
+                                        <div className="flex flex-col items-end">
+                                            <span className="text-sm font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">₹{order.earning.toLocaleString()}</span>
+                                            <span className="text-[9px] font-bold text-emerald-400 mt-0.5">NET PROFIT</span>
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-5 text-right">
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -328,6 +380,18 @@ const OrdersList = () => {
                                         >
                                             <Eye className="h-4 w-4" />
                                         </button>
+                                        {!order.deliveryBoyId && order.status !== 'cancelled' && order.status !== 'delivered' && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openAssignModal(order);
+                                                }}
+                                                className="ml-2 p-2.5 bg-slate-50 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
+                                                title="Assign Delivery Partner"
+                                            >
+                                                <Truck className="h-4 w-4" />
+                                            </button>
+                                        )}
                                     </td>
                                 </tr>
                             )) : (
@@ -364,6 +428,54 @@ const OrdersList = () => {
                     />
                 </div>
             </Card>
+
+            <Modal
+                isOpen={assignOpen}
+                onClose={() => {
+                    setAssignOpen(false);
+                    setAssignOrder(null);
+                }}
+                title={`Assign Delivery Partner${assignOrder?.id ? ` • #${assignOrder.id}` : ""}`}
+            >
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-2">Delivery Partner</label>
+                        <select
+                            value={selectedRiderId}
+                            onChange={(e) => setSelectedRiderId(e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl bg-slate-50 ring-1 ring-slate-200 text-sm font-semibold outline-none"
+                        >
+                            {deliveryPartners.map((d) => (
+                                <option key={d._id} value={d._id}>
+                                    {d.name || d.fullName || d.phone || d._id}
+                                </option>
+                            ))}
+                        </select>
+                        {deliveryPartners.length === 0 && (
+                            <p className="text-xs text-slate-400 mt-2">No delivery partners found.</p>
+                        )}
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2">
+                        <button
+                            onClick={() => {
+                                setAssignOpen(false);
+                                setAssignOrder(null);
+                            }}
+                            className="px-4 py-2 rounded-xl bg-white ring-1 ring-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={submitAssign}
+                            disabled={!selectedRiderId || deliveryPartners.length === 0}
+                            className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Assign
+                        </button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 };
