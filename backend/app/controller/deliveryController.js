@@ -732,6 +732,15 @@ export const validateDeliveryOtp = async (req, res) => {
             { new: true }
         );
 
+        // Financial side effects - Apply delivered financial settlements
+        try {
+            const { applyDeliveredSettlement } = await import('../services/orderSettlement.js');
+            await applyDeliveredSettlement(updatedOrder, updatedOrder.orderId);
+            console.log(`[validateDeliveryOtp] Applied financial side effects for order ${updatedOrder.orderId}`);
+        } catch (settlementErr) {
+            console.error('[validateDeliveryOtp] Settlement failed:', settlementErr.message);
+        }
+
         // Notify customer via FCM
         try {
             const { createNotification } = await import('../services/notificationService.js');

@@ -262,8 +262,48 @@ const Transactions = () => {
             </div>
           </div>
 
-          {/* Table */}
-          <div className="overflow-x-auto">
+          {/* Transaction Cards (Mobile View) */}
+          <div className="block md:hidden space-y-4 p-4 bg-slate-50/50">
+            {filteredTransactions.length === 0 ? (
+              <p className="py-8 text-center text-slate-500 font-medium">No transactions found</p>
+            ) : paginatedTransactions.map((txn, idx) => (
+              <div key={txn.id || txn.ref || txn.reference || `txn-${idx}`} onClick={() => { setSelectedTxn(txn); setIsDetailModalOpen(true); }} className="p-4 rounded-2xl border border-slate-100 bg-white shadow-sm flex flex-col gap-3 cursor-pointer">
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "h-10 w-10 rounded-lg flex items-center justify-center font-black transition-all",
+                      txn.amount > 0 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+                    )}>
+                      {txn.amount > 0 ? <HiOutlineArrowDownLeft className="h-5 w-5" /> : <HiOutlineArrowUpRight className="h-5 w-5" />}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-slate-900">{txn.id ?? txn.ref ?? "—"}</h4>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{txn.type ?? "—"}</p>
+                    </div>
+                  </div>
+                  <Badge variant={txn.status === "Settled" ? "success" : "warning"} className="text-[10px] px-2 py-0.5">
+                    {txn.status}
+                  </Badge>
+                </div>
+
+                <div className="flex justify-between items-center border-t border-slate-50 pt-2 mt-1">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-slate-400">Customer / Ref</span>
+                    <span className="text-xs font-bold text-slate-900 truncate max-w-[140px]">{txn.customer || txn.ref || "—"}</span>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <span className="text-xs font-bold text-slate-400">Amount</span>
+                    <span className={cn("text-base font-black tracking-tight", Number(txn.amount ?? 0) > 0 ? "text-emerald-600" : "text-rose-600")}>
+                      {Number(txn.amount ?? 0) > 0 ? "+" : ""}₹{Math.abs(Number(txn.amount ?? 0)).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop View: Full Table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left min-w-[720px]">
               <thead>
                 <tr className="bg-slate-50/50 border-b border-slate-100">

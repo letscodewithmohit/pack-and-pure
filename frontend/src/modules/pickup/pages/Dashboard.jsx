@@ -57,10 +57,19 @@ const Dashboard = () => {
   const [vendorImageById, setVendorImageById] = useState({});
   const [hubImageById, setHubImageById] = useState({});
   const [uploadingId, setUploadingId] = useState("");
+  const [profile, setProfile] = useState(null);
+
+  const fetchProfile = async () => {
+    try {
+      const res = await pickupApi.getMyProfile();
+      if (res?.data?.success) setProfile(res.data.result);
+    } catch (e) { console.error(e); }
+  };
 
   const fetchAssignments = async () => {
     try {
       setLoading(true);
+      fetchProfile();
       const res = await pickupApi.getAssignments({ status: statusFilter });
       const items = res?.data?.result?.items || [];
       setRows(Array.isArray(items) ? items : []);
@@ -100,8 +109,9 @@ const Dashboard = () => {
       { label: "Assigned", value: assigned, icon: Clock, color: "text-amber-600", bg: "bg-amber-50" },
       { label: "Picked", value: picked, icon: Package, color: "text-sky-600", bg: "bg-sky-50" },
       { label: "Done", value: delivered, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50" },
+      { label: "Earnings", value: `₹${Number(profile?.walletBalance || user?.walletBalance || 0).toFixed(0)}`, icon: Navigation, color: "text-indigo-600", bg: "bg-indigo-50" },
     ];
-  }, [rows]);
+  }, [rows, profile, user]);
 
   const onMarkPicked = async (row) => {
     const otp = String(otpById[row._id] || "").trim();
@@ -270,33 +280,96 @@ const Dashboard = () => {
                     </div>
 
                     {/* Vendor Card */}
-                    <div className="bg-slate-50 rounded-2xl p-4 flex items-center justify-between group cursor-pointer hover:bg-slate-100 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-slate-400">
-                          <Store size={20} />
+                    <div className="bg-slate-50 rounded-2xl p-4 space-y-3 group hover:bg-slate-100 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-slate-400">
+                            <Store size={20} />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-900">{row.vendor?.shopName || row.vendor?.name || "Vendor"}</p>
+                            <p className="text-xs font-medium text-slate-500 flex items-center gap-1">
+                              <MapPin size={10} /> Location Verified
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-bold text-slate-900">{row.vendor?.shopName || row.vendor?.name || "Vendor"}</p>
-                          <p className="text-xs font-medium text-slate-500 flex items-center gap-1">
-                            <MapPin size={10} /> Location Verified
-                          </p>
-                        </div>
+                        <a
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (row.status === 'picked') {
+                              const hubDest = { lat: 22.7196, lng: 75.8577 };
+                              openDirections(hubDest);
+                            } else {
+                              const dest = toLatLng(row.vendor?.location);
+                              if (!dest) {
+                                toast.error("Vendor location not available");
+                                return;
+                              }
+                              openDirections(dest);
+                            }
+                          }}
+                          className={`h-10 w-10 ${row.status === 'picked' ? 'bg-emerald-500' : 'bg-sky-500'} text-white rounded-xl flex items-center justify-center shadow-lg transition-all active:scale-95`}
+                        >
+                          <Navigation size={18} />
+                        </a>
                       </div>
-                      <a
-                        href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          const dest = toLatLng(row.vendor?.location);
-                          if (!dest) {
-                            toast.error("Vendor location not available");
-                            return;
-                          }
-                          openDirections(dest);
-                        }}
-                        className="h-8 w-8 bg-sky-500 text-white rounded-lg flex items-center justify-center shadow-lg shadow-sky-200 hover:bg-sky-600 transition-all"
-                      >
-                        <Navigation size={14} />
-                      </a>
+
+                      {/* Dynamic Workflow Map Preview */}
+                      {(() => {
+                        const partnerLoc = user?.location?.coordinates?.length >= 2 ? toLatLng(user.location) : null;
+                        const vendorLoc = toLatLng(row.vendor?.location);
+                        const hubLoc = { lat: 22.7196, lng: 75.8577 }; // Central Hub
+                        
+                        if (!partnerLoc) {
+                          return (
+                            <div className="h-28 w-full bg-slate-50 rounded-xl flex flex-col items-center justify-center border border-dashed border-slate-200">
+                              <MapPin className="text-slate-300 mb-1" size={20} />
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Set your location in Profile</p>
+                            </div>
+                          );
+                        }
+
+                        // Determine Target based on Status
+                        const isPicked = row.status === 'picked' || row.status === 'hub_delivered';
+                        const targetLoc = isPicked ? hubLoc : vendorLoc;
+                        const targetLabel = isPicked ? 'HUB' : 'SHOP';
+                        const targetColor = isPicked ? '0x10b981' : '0xe11d48';
+
+                        if (!targetLoc) return null;
+
+                        return (
+                          <div className="h-56 w-full rounded-[32px] overflow-hidden relative border-4 border-white shadow-2xl bg-slate-200">
+                            <img 
+                              src={`https://maps.googleapis.com/maps/api/staticmap?size=800x400&maptype=roadmap&markers=size:mid%7Ccolor:0x4f46e5%7Clabel:P%7C${partnerLoc.lat},${partnerLoc.lng}&markers=size:mid%7Ccolor:${targetColor}%7Clabel:T%7C${targetLoc.lat},${targetLoc.lng}&path=color:0x4f46e5aa%7Cweight:5%7C${partnerLoc.lat},${partnerLoc.lng}%7C${targetLoc.lat},${targetLoc.lng}&key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''}`}
+                              alt="Workflow Route"
+                              className="w-full h-full object-cover"
+                            />
+                            
+                            <div className="absolute inset-x-0 top-0 p-4 bg-gradient-to-b from-black/40 to-transparent flex justify-between items-start">
+                              <div className="flex gap-2">
+                                <div className="bg-white/95 backdrop-blur px-3 py-1 rounded-lg shadow-lg">
+                                  <p className="text-[8px] font-black text-slate-500 uppercase leading-none mb-1">From</p>
+                                  <p className="text-[10px] font-black text-indigo-600 leading-none uppercase">You (Home)</p>
+                                </div>
+                                <div className={`bg-white/95 backdrop-blur px-3 py-1 rounded-lg shadow-lg border-b-2 ${isPicked ? 'border-emerald-500' : 'border-rose-500'}`}>
+                                  <p className="text-[8px] font-black text-slate-500 uppercase leading-none mb-1">Next Destination</p>
+                                  <p className={`text-[10px] font-black ${isPicked ? 'text-emerald-600' : 'text-rose-600'} leading-none uppercase`}>{targetLabel}</p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="absolute bottom-4 left-4 right-4 flex justify-center">
+                               <div className="bg-slate-900/90 backdrop-blur-xl px-4 py-2 rounded-2xl shadow-2xl border border-white/20">
+                                  <p className="text-[10px] font-black text-white uppercase tracking-[2px] flex items-center gap-2">
+                                    <div className={`h-2 w-2 rounded-full animate-pulse ${isPicked ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 'bg-rose-500 shadow-[0_0_8px_rgba(225,29,72,0.8)]'}`}/> 
+                                    {isPicked ? "Phase 2: Delivering to Hub" : "Phase 1: Heading to Vendor"}
+                                  </p>
+                               </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Products List */}
@@ -437,6 +510,40 @@ const Dashboard = () => {
               ))
             )}
           </AnimatePresence>
+        </div>
+        
+        {/* Earnings History Section */}
+        <div className="space-y-4 mt-12 pb-10">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">Earnings History</h2>
+            <span className="text-[10px] font-bold text-slate-400 uppercase">Recent Completed Trips</span>
+          </div>
+
+          <div className="space-y-3">
+            {rows.filter(r => r.status === 'hub_delivered').length === 0 ? (
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 text-center">
+                <p className="text-xs font-bold text-slate-400 uppercase">No earnings recorded yet</p>
+              </div>
+            ) : (
+              rows.filter(r => r.status === 'hub_delivered').map((trip) => (
+                <div key={trip._id} className="bg-white p-4 rounded-3xl border border-slate-100 flex items-center justify-between shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                      <Truck size={18} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">Trip #{trip.requestId}</p>
+                      <p className="text-[10px] font-medium text-slate-500">To: Central Hub</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-black text-emerald-600">+₹{profile?.baseTripRate || 0}</p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase">Trip Credit</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </main>
     </div>

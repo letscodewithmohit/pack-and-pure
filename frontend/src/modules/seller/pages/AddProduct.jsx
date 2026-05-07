@@ -37,6 +37,7 @@ const AddProduct = () => {
     stock: "",
     lowStockAlert: 5,
     unit: "Pieces",
+    gstRate: 0,
     category: "",
     subcategory: "",
     header: "",
@@ -58,6 +59,8 @@ const AddProduct = () => {
       },
     ],
   });
+
+  const [gstRates, setGstRates] = useState([0, 5, 12, 18, 28]);
 
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -94,11 +97,22 @@ const AddProduct = () => {
       }
     };
     fetchCats();
+    const fetchGstRates = async () => {
+      try {
+        const res = await sellerApi.getSettings();
+        const data = res.data?.result ?? res.data;
+        if (data?.gstRates) setGstRates(data.gstRates);
+      } catch (err) {
+        console.error("Failed to fetch GST rates", err);
+      }
+    };
+    fetchGstRates();
   }, []);
 
   const categories = dbCategories;
 
   const handleSave = async () => {
+    if (isSaving) return;
     // Validate required fields
     if (!formData.name) {
       toast.error("Please fill in the Product Title");
@@ -142,7 +156,7 @@ const AddProduct = () => {
         'name', 'slug', 'sku', 'description', 'price', 'salePrice', 
         'stock', 'lowStockAlert', 'unit', 'tags', 'weight', 
         'brand', 'shelfLife', 'countryOfOrigin', 'fssaiLicense', 
-        'customerCare', 'masterProductId', 'status'
+        'customerCare', 'masterProductId', 'status', 'gstRate'
       ];
 
       fields.forEach(field => {
@@ -260,6 +274,7 @@ const AddProduct = () => {
       name: prod.name,
       description: prod.description || '',
       masterProductId: prod._id,
+      gstRate: prod.gstRate || 0,
       brand: prod.brand || '',
       header: prod.headerId?._id || prod.headerId || '',
       category: prod.categoryId?._id || prod.categoryId || '',
@@ -611,6 +626,20 @@ const AddProduct = () => {
                         placeholder="500"
                         className="w-full px-3 py-2 bg-white ring-1 ring-slate-200 border-none rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-primary/10"
                       />
+                    </div>
+                    <div className="col-span-6 md:col-span-2 space-y-1">
+                      <label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">
+                        GST Rate (%)
+                      </label>
+                      <select
+                        value={formData.gstRate}
+                        onChange={(e) => setFormData({ ...formData, gstRate: e.target.value })}
+                        className="w-full px-3 py-2 bg-indigo-50 text-indigo-900 border-none rounded-xl text-xs font-bold outline-none cursor-pointer"
+                      >
+                        {gstRates.map(rate => (
+                          <option key={rate} value={rate}>{rate}% GST</option>
+                        ))}
+                      </select>
                     </div>
                     <div className="col-span-6 md:col-span-2 space-y-1">
                       <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest ml-1">

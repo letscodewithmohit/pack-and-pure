@@ -46,6 +46,8 @@ const purchaseRequestItemSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    gstRate: { type: Number, default: 0 },
+    gstAmount: { type: Number, default: 0 },
   },
   { _id: false },
 );

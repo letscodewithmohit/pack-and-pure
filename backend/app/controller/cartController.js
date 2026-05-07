@@ -2,7 +2,7 @@ import Cart from "../models/cart.js";
 import handleResponse from "../utils/helper.js";
 
 const CART_POPULATE_FIELDS =
-  "name slug price salePrice mainImage stock status headerId categoryId subcategoryId sellerId";
+  "name slug price salePrice mainImage stock status headerId categoryId subcategoryId sellerId gstRate";
 
 /* ===============================
    GET CUSTOMER CART
@@ -119,7 +119,7 @@ export const removeFromCart = async (req, res) => {
     await cart.save();
     const updatedCart = await Cart.findById(cart._id).populate(
       "items.productId",
-      "name slug price salePrice mainImage stock status headerId categoryId subcategoryId sellerId",
+      "name slug price salePrice mainImage stock status headerId categoryId subcategoryId sellerId gstRate",
     );
 
     return handleResponse(res, 200, "Item removed from cart", updatedCart);

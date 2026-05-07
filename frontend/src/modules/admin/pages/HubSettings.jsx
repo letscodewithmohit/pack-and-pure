@@ -38,6 +38,7 @@ const HubSettings = () => {
     freeDeliveryThreshold: 500,
     platformFee: 3,
     gstPercentage: 5,
+    gstRates: [0, 5, 12, 18, 28],
     maxServiceRadius: 15,
     address: "Indore Main Hub, Industrial Area",
   });
@@ -65,6 +66,7 @@ const HubSettings = () => {
           freeDeliveryThreshold: data.result.freeDeliveryThreshold ?? 500,
           platformFee: data.result.platformFee ?? 3,
           gstPercentage: data.result.gstPercentage ?? 5,
+          gstRates: Array.isArray(data.result.gstRates) ? data.result.gstRates : [0, 5, 12, 18, 28],
           maxServiceRadius: data.result.maxServiceRadius ?? 15,
           address: data.result.address || "Indore Main Hub, Industrial Area",
         });
@@ -370,15 +372,42 @@ const HubSettings = () => {
                         className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-black text-slate-900 outline-none"
                       />
                    </div>
-                   <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">GST Rate (%)</label>
-                      <input
-                        type="number"
-                        value={settings.gstPercentage}
-                        onChange={(e) => setSettings({ ...settings, gstPercentage: Number(e.target.value) })}
-                        className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-black text-slate-900 outline-none"
-                      />
-                   </div>
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-slate-50 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Available GST Options</label>
+                    <button 
+                      onClick={() => {
+                        const rate = prompt("Enter new GST rate (%)");
+                        if (rate !== null && !isNaN(rate)) {
+                          const newRate = Number(rate);
+                          if (!settings.gstRates.includes(newRate)) {
+                            setSettings({ ...settings, gstRates: [...settings.gstRates, newRate].sort((a,b) => a-b) });
+                          }
+                        }
+                      }}
+                      className="text-[10px] font-black text-primary uppercase hover:underline"
+                    >
+                      + Add Rate
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {settings.gstRates.map((rate) => (
+                      <div key={rate} className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-xl">
+                        <span className="text-xs font-black text-slate-700">{rate}%</span>
+                        <button 
+                          onClick={() => setSettings({ ...settings, gstRates: settings.gstRates.filter(r => r !== rate) })}
+                          className="text-slate-400 hover:text-rose-500"
+                        >
+                          <HiOutlineExclamationCircle className="h-3 w-3 rotate-45" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-medium italic">
+                    These options will appear in the product management dropdowns for Sellers and Admins.
+                  </p>
                 </div>
              </Card>
           </div>

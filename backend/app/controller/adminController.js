@@ -8,6 +8,7 @@ import Product from "../models/product.js";
 import Transaction from "../models/transaction.js";
 import Notification from "../models/notification.js";
 import Setting from "../models/setting.js";
+import PickupPartner from "../models/pickupPartner.js";
 import handleResponse from "../utils/helper.js";
 import getPagination from "../utils/pagination.js";
 
@@ -488,6 +489,23 @@ export const getSellerWithdrawals = async (req, res) => {
 };
 
 /* ===============================
+   GET PICKUP WITHDRAWALS
+================================ */
+export const getPickupWithdrawals = async (req, res) => {
+  try {
+    const { page, limit, skip } = getPagination(req, { defaultLimit: 25, maxLimit: 200 });
+    const query = { userModel: "PickupPartner", type: "Withdrawal" };
+    const [transactions, total] = await Promise.all([
+      Transaction.find(query).populate("user", "name phone").sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      Transaction.countDocuments(query),
+    ]);
+    return handleResponse(res, 200, "Pickup withdrawals fetched", { items: transactions, page, limit, total, totalPages: Math.ceil(total / limit) || 1 });
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+/* ===============================
    UPDATE WITHDRAWAL STATUS
 ================================ */
 export const updateWithdrawalStatus = async (req, res) => {
@@ -501,6 +519,40 @@ export const updateWithdrawalStatus = async (req, res) => {
     if (reason) transaction.notes = reason;
     await transaction.save();
     return handleResponse(res, 200, `Withdrawal ${status} successfully`);
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+/* ===============================
+   SETTLE PICKUP PARTNER WALLET
+================================ */
+export const settlePickupPartnerWallet = async (req, res) => {
+  try {
+    const { partnerId, amount, paymentMethod, reference } = req.body;
+    if (!partnerId || !amount) return handleResponse(res, 400, "Partner ID and Amount are required");
+
+    const partner = await PickupPartner.findById(partnerId);
+    if (!partner) return handleResponse(res, 404, "Partner not found");
+
+    if (partner.walletBalance < amount) return handleResponse(res, 400, "Insufficient wallet balance");
+
+    // Deduct from wallet
+    partner.walletBalance -= Number(amount);
+    await partner.save();
+
+    // Create Transaction Record
+    await Transaction.create({
+      user: partnerId,
+      userModel: "PickupPartner",
+      type: "Withdrawal",
+      amount: -Number(amount),
+      status: "Settled",
+      reference: reference || `PAYOUT-${Date.now()}`,
+      meta: { paymentMethod }
+    });
+
+    return handleResponse(res, 200, "Wallet settled successfully");
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }
@@ -580,8 +632,8 @@ export const getDeliveryCashBalances = async (req, res) => {
       ]),
     ]);
 
-    const meta = aggregateResult?.meta?.[0];
-    const riders = aggregateResult?.items ?? [];
+    const meta = aggregateResult?.[0]?.meta?.[0];
+    const riders = aggregateResult?.[0]?.items ?? [];
     const total = meta?.total ?? 0;
     const collectedToday = todayCollectedRes[0]?.total || 0;
 
@@ -771,11 +823,11 @@ export const updateCustomerCodPolicy = async (req, res) => {
 ================================ */
 export const createSellerByAdmin = async (req, res) => {
   try {
-    const { name, shopName, email, phone, password, lat, lng, radius, isVerified, isActive } = req.body;
+    const { name, shopName, address, email, phone, password, lat, lng, radius, isVerified, isActive } = req.body;
     if (!name || !shopName || !email || !phone || !password) return handleResponse(res, 400, "name, shopName, email, phone and password are required");
     const existing = await Seller.findOne({ $or: [{ email }, { phone }] }).lean();
     if (existing) return handleResponse(res, 400, "Seller with this email or phone already exists");
-    const sellerData = { name: String(name).trim(), shopName: String(shopName).trim(), email: String(email).trim().toLowerCase(), phone: String(phone).trim(), password: String(password), isVerified: typeof isVerified === "boolean" ? isVerified : true, isActive: typeof isActive === "boolean" ? isActive : true };
+    const sellerData = { name: String(name).trim(), shopName: String(shopName).trim(), address: address || "", email: String(email).trim().toLowerCase(), phone: String(phone).trim(), password: String(password), isVerified: typeof isVerified === "boolean" ? isVerified : true, isActive: typeof isActive === "boolean" ? isActive : true };
     if (lat !== undefined && lng !== undefined) {
       const parsedLat = Number(lat); const parsedLng = Number(lng);
       if (!Number.isFinite(parsedLat) || parsedLat < -90 || parsedLat > 90) return handleResponse(res, 400, "Invalid latitude");
@@ -801,11 +853,12 @@ export const createSellerByAdmin = async (req, res) => {
 export const updateSellerByAdmin = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, shopName, email, phone, password, lat, lng, radius, isVerified, isActive } = req.body;
+    const { name, shopName, address, email, phone, password, lat, lng, radius, isVerified, isActive } = req.body;
     const seller = await Seller.findById(id);
     if (!seller) return handleResponse(res, 404, "Seller not found");
     if (name !== undefined) seller.name = String(name).trim();
     if (shopName !== undefined) seller.shopName = String(shopName).trim();
+    if (address !== undefined) seller.address = String(address).trim();
     if (email !== undefined) seller.email = String(email).trim().toLowerCase();
     if (phone !== undefined) seller.phone = String(phone).trim();
     if (password !== undefined && String(password).trim()) seller.password = String(password);

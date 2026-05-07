@@ -46,6 +46,7 @@ const ProductManagement = () => {
     const [filterCategory, setFilterCategory] = useState('all');
     const [filterStatus, setFilterStatus] = useState('all');
     const [activeTab, setActiveTab] = useState('master'); // Default to Master Catalog
+    const [gstRates, setGstRates] = useState([0, 5, 12, 18, 28]);
 
     const [isProductModalOpen, setIsProductModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -69,6 +70,7 @@ const ProductManagement = () => {
         purchasePrice: '',
         stock: '',
         lowStockAlert: 5,
+        gstRate: 0,
         unit: 'Pieces',
         header: '',
         categoryId: '',
@@ -197,6 +199,16 @@ const ProductManagement = () => {
     };
 
     useEffect(() => {
+        const fetchGstRates = async () => {
+            try {
+                const res = await adminApi.getSettings();
+                const data = res.data?.result ?? res.data;
+                if (data?.gstRates) setGstRates(data.gstRates);
+            } catch (err) {
+                console.error("Failed to fetch GST rates", err);
+            }
+        };
+        fetchGstRates();
         fetchCategories();
     }, []);
 
@@ -261,6 +273,7 @@ const ProductManagement = () => {
                 weight: String(formData.weight || '').trim(),
                 status: formData.status || 'active',
                 isFeatured: !!formData.isFeatured,
+                gstRate: Number(formData.gstRate) || 0,
                 tags: formData.tags,
                 masterProductId: formData.masterProductId || null
             };
@@ -366,6 +379,7 @@ const ProductManagement = () => {
                 purchasePrice: item.purchasePrice || (item.ownerType === 'seller' ? item.salePrice : item.price) || 0,
                 stock: item.stock || 0,
                 lowStockAlert: item.lowStockAlert || 5,
+                gstRate: item.gstRate || 0,
                 unit: item.unit || 'Pieces',
                 header: item.headerId?._id || item.headerId || '',
                 categoryId: item.categoryId?._id || item.categoryId || '',
@@ -1058,6 +1072,18 @@ const ProductManagement = () => {
                                                         <option value="Pack">Pack</option>
                                                         <option value="Box">Box</option>
                                                         <option value="Bundle">Bundle</option>
+                                                    </select>
+                                                </div>
+                                                <div className="space-y-1.5 flex flex-col">
+                                                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">GST Rate (%) <span className="text-rose-500">*</span></label>
+                                                    <select
+                                                        value={formData.gstRate}
+                                                        onChange={(e) => setFormData({ ...formData, gstRate: e.target.value })}
+                                                        className="w-full px-4 py-2.5 bg-indigo-50 text-indigo-900 border-none rounded-xl text-sm font-bold outline-none cursor-pointer"
+                                                    >
+                                                        {gstRates.map(rate => (
+                                                            <option key={rate} value={rate}>{rate}% GST</option>
+                                                        ))}
                                                     </select>
                                                 </div>
                                             </div>

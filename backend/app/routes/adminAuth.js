@@ -18,7 +18,9 @@ import {
     bulkSettleDelivery,
     getSellerWithdrawals,
     getDeliveryWithdrawals,
+    getPickupWithdrawals,
     updateWithdrawalStatus,
+    settlePickupPartnerWallet,
     getSellerTransactions,
     getDeliveryCashBalances,
     getRiderCashDetails,
@@ -138,6 +140,8 @@ router.get("/reports", verifyToken, allowRoles("admin"), getReports);
 // Seller Withdrawal Management
 router.get("/seller-withdrawals", verifyToken, allowRoles("admin"), getSellerWithdrawals);
 router.get("/delivery-withdrawals", verifyToken, allowRoles("admin"), getDeliveryWithdrawals);
+router.get("/pickup-withdrawals", verifyToken, allowRoles("admin"), getPickupWithdrawals);
+router.post("/settle-pickup-wallet", verifyToken, allowRoles("admin"), settlePickupPartnerWallet);
 router.get("/seller-transactions", verifyToken, allowRoles("admin"), getSellerTransactions);
 router.put("/withdrawals/:id", verifyToken, allowRoles("admin"), updateWithdrawalStatus);
 

@@ -161,6 +161,8 @@ const mapRow = (reqDoc) => {
         : "Product"),
     quantity: Number(item?.shortageQty || item?.requiredQty || reqDoc.quantity || 0),
     unitCost: Number(item?.vendorUnitCost || 0),
+    gstRate: Number(item?.gstRate || 0),
+    gstAmount: Number(item?.gstAmount || 0),
     status: reqDoc.status,
     pickupPartnerId: reqDoc.pickupPartnerId || null,
     pickupPartnerName: reqDoc.pickupPartnerName || "",
@@ -208,6 +210,8 @@ const mapSellerRow = (reqDoc) => ({
     shortageQty: Number(item.shortageQty || 0),
     committedQty: Number(item.committedQty || 0),
     unitCost: Number(item.vendorUnitCost || 0),
+    gstRate: Number(item.gstRate || 0),
+    gstAmount: Number(item.gstAmount || 0),
   })),
   notes: reqDoc.notes || "",
   exceptionReason: reqDoc.exceptionReason || "",
@@ -276,11 +280,16 @@ export const createManualPurchaseRequest = async (req, res) => {
 
     const [vendor, product] = await Promise.all([
       Seller.findById(vendorId).select("_id shopName name"),
-      Product.findById(productId).select("_id name status price salePrice purchasePrice"),
+      Product.findById(productId).select("_id name status stock price salePrice purchasePrice gstRate"),
     ]);
 
     if (!vendor) return handleResponse(res, 404, "Vendor not found");
     if (!product) return handleResponse(res, 404, "Product not found");
+
+    // Validation: Check if seller product has stock
+    if (Number(product.stock || 0) <= 0) {
+      return handleResponse(res, 400, `Cannot create PR: ${product.name} is out of stock (Stock: 0)`);
+    }
 
     let requestId = generateRequestId();
     let retries = 0;
@@ -292,7 +301,7 @@ export const createManualPurchaseRequest = async (req, res) => {
       retries += 1;
     }
 
-    const unitCost = toMoney(product?.purchasePrice || 0);
+    const unitCost = toMoney(product?.purchasePrice || product?.salePrice || product?.price || 0);
 
     const doc = await PurchaseRequest.create({
       requestId,
@@ -308,6 +317,8 @@ export const createManualPurchaseRequest = async (req, res) => {
           vendorUnitCost: unitCost,
           vendorQuotedPrice: unitCost,
           pricingStrategy: "manual_admin_request",
+          gstRate: product.gstRate || 0,
+          gstAmount: Math.round(unitCost * qty * ((product.gstRate || 0) / 100)),
         },
       ],
       status: "created",
@@ -450,29 +461,19 @@ export const receiveAtHub = async (req, res) => {
         incoming.purchaseUnitCost !== undefined ? incoming.purchaseUnitCost : fallbackCost,
       );
 
-      // --- SELLER STOCK VALIDATION ---
-      // Ensure the seller has enough stock before we 'receive' it at the hub
+      // --- SELLER STOCK VALIDATION REMOVED (Handled at Pickup) ---
       const sellerId = pr.vendorId;
       const targetSellerProductId = line.selectedSellerProductId || productId;
-      
-      if (sellerId) {
-        const sellerProduct = await Product.findOne({ _id: targetSellerProductId, sellerId: sellerId });
-        if (sellerProduct) {
-          const currentSellerStock = Number(sellerProduct.stock || 0);
-          if (currentSellerStock < acceptedQty) {
-             return handleResponse(res, 400, `Seller has insufficient stock (${currentSellerStock}) for ${line.product || 'this item'}. Cannot go negative.`);
-          }
-          
-          // Deduct from seller's stock as it's now 'shipped/received' by Hub
-          sellerProduct.stock = currentSellerStock - acceptedQty;
-          await sellerProduct.save();
-          console.log(`[Stock] Deducted ${acceptedQty} from Seller ${sellerId}. Remaining: ${sellerProduct.stock}`);
-        }
-      }
+
+      // --- HUB-FIRST LOGIC: Resolve Master ID for Inventory ---
+      const sellerProductData = await Product.findById(productId).select('masterProductId ownerType');
+      const resolvedMasterProductId = (sellerProductData?.ownerType === 'seller' && sellerProductData?.masterProductId) 
+        ? String(sellerProductData.masterProductId) 
+        : productId;
 
       const hubRow = await HubInventory.findOne({
         hubId: pr.hubId || DEFAULT_HUB_ID,
-        productId,
+        productId: resolvedMasterProductId,
       });
 
       if (hubRow) {
@@ -483,7 +484,7 @@ export const receiveAtHub = async (req, res) => {
           ? toMoney((prevQty * prevAvgCost + acceptedQty * incomingCost) / nextQty) 
           : incomingCost;
           
-        const masterProduct = await Product.findById(productId).select('price salePrice');
+        const masterProduct = await Product.findById(resolvedMasterProductId).select('price salePrice');
         const sellPrice = masterProduct?.price || masterProduct?.salePrice || incomingCost;
 
         hubRow.reservedQty = Math.max(0, Number(hubRow.reservedQty || 0) + acceptedQty);
@@ -497,12 +498,12 @@ export const receiveAtHub = async (req, res) => {
         else hubRow.status = "healthy";
         await hubRow.save();
       } else {
-        const masterProduct = await Product.findById(productId).select('price salePrice');
+        const masterProduct = await Product.findById(resolvedMasterProductId).select('price salePrice');
         const sellPrice = masterProduct?.price || masterProduct?.salePrice || incomingCost;
 
         await HubInventory.create({
           hubId: pr.hubId || DEFAULT_HUB_ID,
-          productId,
+          productId: resolvedMasterProductId,
           availableQty: 0,
           reservedQty: acceptedQty,
           reorderLevel: 10,
@@ -515,7 +516,8 @@ export const receiveAtHub = async (req, res) => {
       }
 
       normalized.push({
-        productId,
+        productId: resolvedMasterProductId, // Store the resolved Master ID in the inward record
+        sellerProductId: productId, // Keep track of which seller item it was
         expectedQty,
         receivedQty,
         damagedQty,
@@ -847,7 +849,22 @@ export const respondSellerPurchaseRequest = async (req, res) => {
     pr.exceptionReason = "";
     await pr.save();
 
-    return handleResponse(res, 200, "Seller response saved", mapSellerRow(pr.toObject()));
+    // --- STEP 10: AUTOMATIC PICKUP ASSIGNMENT ---
+    if (responseStatus === "accepted" || responseStatus === "partial") {
+      try {
+        const bestPartner = await pickBestPickupPartner(pr.hubId);
+        if (bestPartner) {
+          await assignPickupToRequest(pr, bestPartner);
+          console.log(`[Step 10] Automatically assigned Pickup Partner ${bestPartner.name} to PR ${pr.requestId}`);
+        } else {
+          console.log(`[Step 10] No available Pickup Partners found for Hub ${pr.hubId}. Admin must assign manually.`);
+        }
+      } catch (assignErr) {
+        console.warn("[Step 10] Automatic assignment failed:", assignErr.message);
+      }
+    }
+
+    return handleResponse(res, 200, "Seller response saved and pickup request triggered", mapSellerRow(pr.toObject()));
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }

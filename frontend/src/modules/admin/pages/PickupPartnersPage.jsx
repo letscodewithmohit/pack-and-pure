@@ -18,7 +18,13 @@ const PickupPartnersPage = () => {
     partnerName: "",
     phone: "",
     vehicleType: "bike",
+    paymentType: "per_trip",
+    salaryAmount: 0,
+    perKmRate: 10,
+    baseTripRate: 20,
   });
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({});
 
   const fetchPartners = async () => {
     try {
@@ -48,13 +54,35 @@ const PickupPartnersPage = () => {
     if (!addForm.phone.trim()) return;
 
     await adminApi.createPickupPartner({
-      partnerName,
-      phone: addForm.phone.trim(),
-      vehicleType: addForm.vehicleType || "bike",
+      ...addForm,
     });
 
-    setAddForm({ partnerName: "", phone: "", vehicleType: "bike" });
+    setAddForm({ 
+      partnerName: "", phone: "", vehicleType: "bike", 
+      paymentType: "per_trip", salaryAmount: 0, perKmRate: 10, baseTripRate: 20 
+    });
     setAddOpen(false);
+    await fetchPartners();
+  };
+
+  const openEdit = (row) => {
+    setCurrentRow(row);
+    setEditForm({
+      partnerName: row.partnerName,
+      phone: row.phone,
+      vehicleType: row.vehicleType,
+      paymentType: row.paymentType,
+      salaryAmount: row.salaryAmount,
+      perKmRate: row.perKmRate,
+      baseTripRate: row.baseTripRate,
+    });
+    setEditOpen(true);
+  };
+
+  const submitEdit = async () => {
+    if (!currentRow) return;
+    await adminApi.updatePickupPartner(currentRow.id, editForm);
+    setEditOpen(false);
     await fetchPartners();
   };
 
@@ -121,7 +149,8 @@ const PickupPartnersPage = () => {
           { key: "partnerName", label: "Partner Name" },
           { key: "phone", label: "Phone" },
           { key: "vehicleType", label: "Vehicle" },
-          { key: "assignedPickups", label: "Load" },
+          { key: "paymentType", label: "Pay Type" },
+          { key: "walletBalance", label: "Wallet", render: (val) => `₹${Number(val || 0).toFixed(2)}` },
           { key: "status", label: "Availability" },
           { key: "isVerified", label: "KYC Status", render: (val) => val ? "✅ Verified" : "⚠️ Pending" },
         ]}
@@ -129,6 +158,12 @@ const PickupPartnersPage = () => {
         statusColumn="status"
         renderActions={(row) => (
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => openEdit(row)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+              Edit/Pay
+            </button>
             <button
               type="button"
               onClick={() => openStatus(row)}
@@ -144,7 +179,7 @@ const PickupPartnersPage = () => {
                 fetchPartners();
               }}
               className={`rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-all shadow-sm ${row.isVerified ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-amber-500 hover:bg-amber-600'}`}>
-              {row.isVerified ? "Verified ✅" : "Verify KYC"}
+              {row.isVerified ? "Verified" : "Verify"}
             </button>
             <button
               type="button"
@@ -174,10 +209,66 @@ const PickupPartnersPage = () => {
               { value: "van", label: "Van" },
             ],
           },
+          {
+            key: "paymentType",
+            label: "Payment Model",
+            type: "select",
+            options: [
+              { value: "per_trip", label: "Distance/Trip Based" },
+              { value: "salary", label: "Fixed Salary" },
+            ],
+          },
+          ...(addForm.paymentType === "salary" 
+            ? [{ key: "salaryAmount", label: "Monthly Salary (₹)", type: "number" }]
+            : [
+                { key: "baseTripRate", label: "Base Fee Per Trip (₹)", type: "number" },
+                { key: "perKmRate", label: "Rate Per KM (₹)", type: "number" }
+              ]
+          )
         ]}
         values={addForm}
         onChange={(key, value) => setAddForm((prev) => ({ ...prev, [key]: value }))}
         onSubmit={submitAdd}
+      />
+
+      <SupplyFormModal
+        isOpen={editOpen}
+        onClose={() => setEditOpen(false)}
+        title={`Edit Partner: ${currentRow?.partnerName}`}
+        submitLabel="Update Settings"
+        fields={[
+          { key: "partnerName", label: "Partner Name" },
+          { key: "phone", label: "Phone" },
+          {
+            key: "vehicleType",
+            label: "Vehicle Type",
+            type: "select",
+            options: [
+              { value: "bike", label: "Bike" },
+              { value: "scooter", label: "Scooter" },
+              { value: "van", label: "Van" },
+            ],
+          },
+          {
+            key: "paymentType",
+            label: "Payment Model",
+            type: "select",
+            options: [
+              { value: "per_trip", label: "Distance/Trip Based" },
+              { value: "salary", label: "Fixed Salary" },
+            ],
+          },
+          ...(editForm.paymentType === "salary" 
+            ? [{ key: "salaryAmount", label: "Monthly Salary (₹)", type: "number" }]
+            : [
+                { key: "baseTripRate", label: "Base Fee Per Trip (₹)", type: "number" },
+                { key: "perKmRate", label: "Rate Per KM (₹)", type: "number" }
+              ]
+          )
+        ]}
+        values={editForm}
+        onChange={(key, value) => setEditForm((prev) => ({ ...prev, [key]: value }))}
+        onSubmit={submitEdit}
       />
 
       <SupplyConfirmModal

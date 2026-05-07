@@ -10,7 +10,7 @@ const transactionSchema = new mongoose.Schema(
         userModel: {
             type: String,
             required: true,
-            enum: ["Seller", "Delivery", "Admin", "User"],
+            enum: ["Seller", "Delivery", "Admin", "User", "PickupPartner"],
         },
         order: {
             type: mongoose.Schema.Types.ObjectId,
@@ -18,7 +18,7 @@ const transactionSchema = new mongoose.Schema(
         },
         type: {
             type: String,
-            enum: ["Order Payment", "Order Sale", "Delivery Earning", "Withdrawal", "Refund", "Incentive", "Bonus", "Cash Collection", "Cash Settlement", "Supply Earning"],
+            enum: ["Order Payment", "Order Sale", "Delivery Earning", "Withdrawal", "Refund", "Incentive", "Bonus", "Cash Collection", "Cash Settlement", "Supply Earning", "Pickup Earning"],
             required: true,
         },
         amount: {

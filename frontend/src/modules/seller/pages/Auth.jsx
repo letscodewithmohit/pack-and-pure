@@ -38,6 +38,7 @@ const Auth = () => {
         name: '',
         shopName: '',
         phone: '',
+        address: '',
         description: '',
         category: 'Grocery',
         lat: '',
@@ -258,8 +259,13 @@ const Auth = () => {
                                     </div>
 
                                     <div className="space-y-2">
+                                        <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500 ml-1">Shop Address</label>
+                                        <textarea name="address" required value={formData.address} onChange={handleChange} placeholder="Enter full physical address..." className="w-full px-5 py-3 bg-slate-50 border-2 border-transparent rounded-[20px] text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-indigo-100 transition-all min-h-[80px] resize-none" />
+                                    </div>
+
+                                    <div className="space-y-2">
                                         <label className="text-[11px] font-bold uppercase tracking-widest text-slate-500 ml-1">Shop Description</label>
-                                        <textarea name="description" required value={formData.description} onChange={handleChange} placeholder="Describe your store and products..." className="w-full px-5 py-4 bg-slate-50 border-2 border-transparent rounded-[20px] text-sm font-bold text-slate-700 outline-none focus:bg-white focus:border-indigo-100 transition-all min-h-[100px] resize-none" />
+                                        <textarea name="description" required value={formData.description} onChange={handleChange} placeholder="Describe your store and products..." className="w-full px-5 py-3 bg-slate-50 border-2 border-transparent rounded-[20px] text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-indigo-100 transition-all min-h-[80px] resize-none" />
                                     </div>
 
                                     <div className="space-y-2">

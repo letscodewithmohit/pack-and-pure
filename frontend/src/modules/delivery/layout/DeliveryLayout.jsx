@@ -83,7 +83,7 @@ const DeliveryLayout = () => {
       distance: "Nearby",
       estTime: "10-15 min",
       value: total,
-      earnings: p.deliveryFee ?? Math.round(total * 0.1),
+      earnings: Math.max(p.deliveryFee ?? 0, 25), // Ensure minimum ₹25 earning even if delivery is free
       expiresAt: payload.deliverySearchExpiresAt || null,
     });
     const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3");
@@ -118,7 +118,7 @@ const DeliveryLayout = () => {
       distance: "Nearby",
       estTime: "10-15 min",
       value: total,
-      earnings: newOrder.pricing?.deliveryFee ?? Math.round(total * 0.1),
+      earnings: Math.max(newOrder.pricing?.deliveryFee ?? 0, 25), // Ensure minimum ₹25 earning even if delivery is free
       expiresAt: newOrder.deliverySearchExpiresAt || null,
     });
     const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3");

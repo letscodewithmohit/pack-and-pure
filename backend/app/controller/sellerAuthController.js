@@ -19,7 +19,7 @@ const generateToken = (seller) =>
 ================================ */
 export const signupSeller = async (req, res) => {
     try {
-        const { name, email, phone, password, shopName, lat, lng, radius, description, category } = req.body;
+        const { name, email, phone, password, shopName, address, lat, lng, radius, description, category } = req.body;
 
         if (!name || !email || !phone || !password || !shopName) {
             return handleResponse(res, 400, "All fields are required");
@@ -48,6 +48,7 @@ export const signupSeller = async (req, res) => {
             phone,
             password,
             shopName,
+            address: address || "",
             description: description || "",
             category: category || "General",
             documents: {}

@@ -1,17 +1,17 @@
-import React from 'react';
+import ReactDOM from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HiOutlineBell, HiOutlineCheckCircle, HiOutlineExclamationCircle, HiOutlineClock } from 'react-icons/hi2';
 import { cn } from '@/lib/utils';
 import Button from '@shared/components/ui/Button';
 
 const NotificationPopup = ({ notifications, onMarkAsRead, onMarkAllAsRead, onClose }) => {
-    return (
+    return ReactDOM.createPortal(
         <motion.div
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ type: "spring", damping: 20, stiffness: 300 }}
-            className="fixed md:absolute top-14 md:top-full left-0 md:left-auto md:right-0 mt-0 md:mt-4 w-full md:w-[380px] bg-white rounded-b-2xl md:rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] md:border border-gray-100 overflow-hidden z-50 max-h-[80vh] md:h-auto flex flex-col"
+            className="fixed top-20 right-4 md:right-8 w-[calc(100%-2rem)] md:w-[400px] bg-white rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.3)] border border-slate-100 overflow-hidden !z-[99999] max-h-[85vh] flex flex-col"
         >
             <div className="p-4 border-b border-gray-50 flex items-center justify-between bg-slate-50/50 flex-shrink-0">
                 <div className="flex items-center gap-2">
@@ -95,7 +95,8 @@ const NotificationPopup = ({ notifications, onMarkAsRead, onMarkAllAsRead, onClo
                     Close Panel
                 </button>
             </div>
-        </motion.div>
+        </motion.div>,
+        document.body
     );
 };
 

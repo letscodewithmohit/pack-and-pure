@@ -42,6 +42,8 @@ const orderSchema = new mongoose.Schema(
         },
         variantSlot: String, // To identify which variant was bought
         image: String,
+        gstRate: { type: Number, default: 0 },
+        gstAmount: { type: Number, default: 0 },
       },
     ],
     address: {

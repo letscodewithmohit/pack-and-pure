@@ -102,10 +102,15 @@ export const upsertHubInventory = async (req, res) => {
       return handleResponse(res, 400, "productId is required");
     }
 
-    const product = await Product.findById(productId).select("_id price salePrice");
+    const product = await Product.findById(productId).select("_id price salePrice masterProductId ownerType");
     if (!product) {
       return handleResponse(res, 404, "Product not found");
     }
+
+    // --- HUB-FIRST LOGIC: Resolve Master ID for Inventory ---
+    const resolvedMasterProductId = (product.ownerType === 'seller' && product.masterProductId) 
+      ? String(product.masterProductId) 
+      : String(product._id);
 
     const qty = Math.max(0, Number(quantity || 0));
     const minAlert = Math.max(0, Number(minimumStockAlert || 0));
@@ -115,7 +120,7 @@ export const upsertHubInventory = async (req, res) => {
     );
     const finalHubId = String(hubId || DEFAULT_HUB_ID);
 
-    let row = await HubInventory.findOne({ hubId: finalHubId, productId });
+    let row = await HubInventory.findOne({ hubId: finalHubId, productId: resolvedMasterProductId });
     if (!row) {
       const seededCost = toMoney(
         purchaseCost !== undefined
@@ -127,7 +132,7 @@ export const upsertHubInventory = async (req, res) => {
       );
       row = new HubInventory({
         hubId: finalHubId,
-        productId,
+        productId: resolvedMasterProductId,
         availableQty: qty,
         reorderLevel: minAlert,
         lastPurchaseCost: seededCost,

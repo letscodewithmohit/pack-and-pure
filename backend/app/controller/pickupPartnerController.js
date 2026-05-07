@@ -54,6 +54,11 @@ const serializeRow = (row, assignmentStats = new Map()) => {
     isVerified: row.isVerified,
     assignedPickups: Number(stat.totalAssigned || 0),
     activeAssignedPickups: Number(stat.activeAssigned || 0),
+    paymentType: row.paymentType || "per_trip",
+    salaryAmount: row.salaryAmount || 0,
+    perKmRate: row.perKmRate || 0,
+    baseTripRate: row.baseTripRate || 0,
+    walletBalance: row.walletBalance || 0,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -114,7 +119,10 @@ export const getPickupPartners = async (req, res) => {
 
 export const createPickupPartner = async (req, res) => {
   try {
-    const { partnerName, phone, vehicleType, hubId = DEFAULT_HUB_ID } = req.body || {};
+    const { 
+      partnerName, phone, vehicleType, hubId = DEFAULT_HUB_ID,
+      paymentType, salaryAmount, perKmRate, baseTripRate 
+    } = req.body || {};
     if (!partnerName || !String(partnerName).trim()) {
       return handleResponse(res, 400, "partnerName is required");
     }
@@ -130,6 +138,10 @@ export const createPickupPartner = async (req, res) => {
       status: "available",
       isActive: true,
       isVerified: true,
+      paymentType: paymentType || "per_trip",
+      salaryAmount: Number(salaryAmount || 0),
+      perKmRate: Number(perKmRate || 0),
+      baseTripRate: Number(baseTripRate || 0),
     });
 
     return handleResponse(res, 201, "Pickup partner created", serializeRow(doc.toObject()));
@@ -144,7 +156,10 @@ export const createPickupPartner = async (req, res) => {
 export const updatePickupPartner = async (req, res) => {
   try {
     const { id } = req.params;
-    const { partnerName, phone, vehicleType, status, isActive } = req.body || {};
+    const { 
+      partnerName, phone, vehicleType, status, isActive,
+      paymentType, salaryAmount, perKmRate, baseTripRate
+    } = req.body || {};
 
     const doc = await PickupPartner.findById(id);
     if (!doc) return handleResponse(res, 404, "Pickup partner not found");
@@ -155,6 +170,11 @@ export const updatePickupPartner = async (req, res) => {
     if (status !== undefined) doc.status = String(status).toLowerCase();
     if (isActive !== undefined) doc.isActive = Boolean(isActive);
     if (req.body.isVerified !== undefined) doc.isVerified = Boolean(req.body.isVerified);
+    
+    if (paymentType !== undefined) doc.paymentType = paymentType;
+    if (salaryAmount !== undefined) doc.salaryAmount = Number(salaryAmount);
+    if (perKmRate !== undefined) doc.perKmRate = Number(perKmRate);
+    if (baseTripRate !== undefined) doc.baseTripRate = Number(baseTripRate);
 
     await doc.save();
     return handleResponse(res, 200, "Pickup partner updated", serializeRow(doc.toObject()));
@@ -273,8 +293,10 @@ export const getPickupPartnerProfile = async (req, res) => {
       hubId: partner.hubId,
       status: partner.status,
       isActive: partner.isActive,
-      isVerified: partner.isVerified,
-      lastLogin: partner.lastLogin || null,
+      walletBalance: partner.walletBalance || 0,
+      baseTripRate: partner.baseTripRate || 0,
+      perKmRate: partner.perKmRate || 0,
+      paymentType: partner.paymentType || "per_trip",
       createdAt: partner.createdAt,
       updatedAt: partner.updatedAt,
     });
@@ -286,7 +308,7 @@ export const getPickupPartnerProfile = async (req, res) => {
 export const updatePickupPartnerProfile = async (req, res) => {
   try {
     const partnerId = req.user?.id;
-    const { name, vehicleType } = req.body || {};
+    const { name, vehicleType, address, location } = req.body || {};
 
     const partner = await PickupPartner.findById(partnerId);
     if (!partner) {
@@ -295,6 +317,8 @@ export const updatePickupPartnerProfile = async (req, res) => {
 
     if (name !== undefined) partner.name = String(name).trim();
     if (vehicleType !== undefined) partner.vehicleType = String(vehicleType).trim();
+    if (address !== undefined) partner.address = String(address).trim();
+    if (location !== undefined) partner.location = location;
 
     await partner.save();
 
@@ -388,6 +412,10 @@ export const markAssignmentPicked = async (req, res) => {
       return handleResponse(res, 404, "Pickup assignment not found");
     }
 
+    if (!pr.pickupOtpVerifiedAt && !pr.vendorHandover?.otpVerifiedAt) {
+      return handleResponse(res, 400, "Seller has not verified the handover OTP yet. Please ask the seller to verify the OTP first.");
+    }
+
     const expectedHash = pr.pickupOtpHash || "";
     if (!expectedHash || expectedHash !== hashPickupOtp(otp)) {
       return handleResponse(res, 400, "Invalid pickup OTP");
@@ -436,10 +464,19 @@ export const markAssignmentPicked = async (req, res) => {
           });
 
           if (sellerProduct) {
-            await Product.findByIdAndUpdate(sellerProduct._id, {
-              $inc: { stock: -Number(item.shortageQty) }
-            });
-            console.log(`[InventorySync] Deducted ${item.shortageQty} from Seller ${pr.vendorId} for product ${sellerProduct._id}`);
+            const deduction = Number(item.shortageQty);
+            const currentStock = Number(sellerProduct.stock || 0);
+            
+            if (currentStock < deduction) {
+              // If stock is less than needed, just set it to 0 (don't go negative)
+              await Product.findByIdAndUpdate(sellerProduct._id, { $set: { stock: 0 } });
+              console.log(`[InventorySync] Stock was insufficient (${currentStock}). Set to 0 for product ${sellerProduct._id}`);
+            } else {
+              await Product.findByIdAndUpdate(sellerProduct._id, {
+                $inc: { stock: -deduction }
+              });
+              console.log(`[InventorySync] Deducted ${deduction} from Seller ${pr.vendorId} for product ${sellerProduct._id}`);
+            }
           }
         }
       }
@@ -493,7 +530,95 @@ export const markAssignmentHubDelivered = async (req, res) => {
     };
     await pr.save();
 
+    // --- CALCULATE EARNINGS ---
+    try {
+      const partner = await PickupPartner.findById(partnerId);
+      if (partner) {
+        let earnings = 0;
+        if (partner.paymentType === "per_trip") {
+          // Calculate distance between Vendor and Hub
+          const prPopulated = await PurchaseRequest.findById(id).populate("vendorId", "location");
+          const vCoords = prPopulated.vendorId?.location?.coordinates;
+          if (Array.isArray(vCoords) && vCoords.length >= 2) {
+            const [vlng, vlat] = vCoords;
+            const distanceKm = distanceMeters(latitude, longitude, vlat, vlng) / 1000;
+            earnings = partner.baseTripRate + (distanceKm * partner.perKmRate);
+          } else {
+            earnings = partner.baseTripRate; // Fallback to base rate
+          }
+        }
+        // For 'salary' based partners, we don't add to wallet balance automatically per trip,
+        // or we can add a 'bonus' if desired. For now, we only auto-credit per_trip partners.
+        
+        if (earnings > 0) {
+          partner.walletBalance = (partner.walletBalance || 0) + earnings;
+          await partner.save();
+          console.log(`[Payout] Credited ₹${earnings.toFixed(2)} to Pickup Partner ${partnerId} (Type: ${partner.paymentType})`);
+        }
+      }
+    } catch (err) {
+      console.warn("[Payout] Failed to calculate earnings:", err.message);
+    }
+
     return handleResponse(res, 200, "Marked delivered at hub", pr);
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+export const requestPickupWithdrawal = async (req, res) => {
+  try {
+    const partnerId = req.user?.id;
+    const { amount, notes } = req.body || {};
+    const reqAmount = Number(amount);
+
+    if (!reqAmount || reqAmount <= 0) {
+      return handleResponse(res, 400, "Valid amount required");
+    }
+
+    const partner = await PickupPartner.findById(partnerId);
+    if (!partner) return handleResponse(res, 404, "Partner not found");
+
+    if ((partner.walletBalance || 0) < reqAmount) {
+      return handleResponse(res, 400, "Insufficient wallet balance");
+    }
+
+    // Use dynamic import for Transaction to avoid circular deps if any
+    const Transaction = (await import("../models/transaction.js")).default;
+    
+    // Create Pending Withdrawal Transaction
+    const txn = await Transaction.create({
+      user: partnerId,
+      userModel: "PickupPartner",
+      type: "Withdrawal",
+      amount: -reqAmount, // Negative because money is going out
+      status: "Pending",
+      reference: `WITHDRAW-${partnerId.slice(-4)}-${Date.now()}`,
+      meta: { notes, requestedAt: new Date() }
+    });
+
+    // Deduct from balance
+    partner.walletBalance = (partner.walletBalance || 0) - reqAmount;
+    await partner.save();
+
+    return handleResponse(res, 201, "Withdrawal request submitted", txn);
+  } catch (error) {
+    return handleResponse(res, 500, error.message);
+  }
+};
+
+export const getMyWithdrawals = async (req, res) => {
+  try {
+    const partnerId = req.user?.id;
+    const Transaction = (await import("../models/transaction.js")).default;
+    
+    const rows = await Transaction.find({
+      user: partnerId,
+      userModel: "PickupPartner",
+      type: "Withdrawal"
+    }).sort({ createdAt: -1 }).lean();
+
+    return handleResponse(res, 200, "Withdrawals fetched", { items: rows });
   } catch (error) {
     return handleResponse(res, 500, error.message);
   }

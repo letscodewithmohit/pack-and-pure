@@ -15,4 +15,6 @@ export const pickupApi = {
     axiosInstance.post(`/pickup-partner/my/proofs/upload?type=${type}`, formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
+  requestWithdrawal: (data) => axiosInstance.post("/pickup-partner/my/withdrawals", data),
+  getWithdrawals: () => axiosInstance.get("/pickup-partner/my/withdrawals"),
 };

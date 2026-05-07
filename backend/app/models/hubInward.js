@@ -10,6 +10,9 @@ const inwardItemSchema = new mongoose.Schema(
     expectedQty: { type: Number, default: 0, min: 0 },
     receivedQty: { type: Number, default: 0, min: 0 },
     damagedQty: { type: Number, default: 0, min: 0 },
+    acceptedQty: { type: Number, default: 0, min: 0 },
+    purchaseUnitCost: { type: Number, default: 0 },
+    sellerProductId: { type: mongoose.Schema.Types.ObjectId, ref: "Product" },
     qualityStatus: {
       type: String,
       enum: ["ok", "partial", "rejected"],

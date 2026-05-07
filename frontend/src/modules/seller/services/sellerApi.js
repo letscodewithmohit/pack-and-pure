@@ -52,4 +52,5 @@ export const sellerApi = {
     respondPurchaseRequest: (id, data) => axiosInstance.post(`/seller/purchase-requests/${id}/respond`, data),
     markPurchaseRequestReady: (id, data) => axiosInstance.post(`/seller/purchase-requests/${id}/ready`, data),
     confirmPurchaseHandover: (id, data) => axiosInstance.post(`/seller/purchase-requests/${id}/handover`, data),
+    getSettings: () => axiosInstance.get('/settings'),
 };

@@ -250,8 +250,64 @@ const StockManagement = () => {
                                 </div>
                             </div>
 
-                            {/* Stock Table */}
-                            <div className="overflow-x-auto">
+                            {/* Stock Cards (Mobile View) */}
+                            <div className="block md:hidden space-y-4 p-4 bg-slate-50/50">
+                                {filteredInventory.length === 0 ? (
+                                    <p className="py-8 text-center text-slate-500 font-medium">No inventory items found</p>
+                                ) : (
+                                    filteredInventory
+                                        .slice((page - 1) * pageSize, page * pageSize)
+                                        .map((item) => (
+                                            <div key={item.id} className="p-4 rounded-2xl border border-slate-100 bg-white shadow-sm flex flex-col gap-3">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="h-14 w-14 flex-shrink-0 rounded-xl overflow-hidden bg-slate-100 ring-1 ring-slate-200 flex items-center justify-center">
+                                                        {item.mainImage ? (
+                                                            <img src={item.mainImage} alt={item.name} className="h-full w-full object-cover" />
+                                                        ) : (
+                                                            <HiOutlineCube className="h-6 w-6 text-slate-400" />
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <h4 className="text-base font-bold text-slate-900 truncate">{item.name}</h4>
+                                                        <p className="text-xs font-mono text-slate-500 mt-0.5">SKU: {item.sku || 'N/A'}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex justify-between items-center border-t border-slate-50 pt-3 mt-1">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-xs font-bold text-slate-400">Stock Capacity</span>
+                                                        <span className={cn("text-base font-black", item.stock <= item.threshold ? "text-rose-600" : "text-slate-900")}>
+                                                            {item.stock} units
+                                                        </span>
+                                                        {item.stock <= item.threshold && (
+                                                            <span className="text-[9px] font-bold text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded w-fit mt-0.5">
+                                                                Low Stock
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex flex-col items-center">
+                                                        <span className="text-xs font-bold text-slate-400">Status</span>
+                                                        <Badge
+                                                            variant={item.status === 'In Stock' ? 'success' : 'destructive'}
+                                                            className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg mt-0.5"
+                                                        >
+                                                            {item.status}
+                                                        </Badge>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => openAdjustModal(item)}
+                                                        className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-black hover:bg-slate-200 transition-colors"
+                                                    >
+                                                        Adjust
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                )}
+                            </div>
+
+                            {/* Desktop View: Stock Table */}
+                            <div className="hidden md:block overflow-x-auto">
                                 <table className="w-full text-left">
                                     <thead>
                                         <tr className="bg-slate-50/50 border-b border-slate-100">

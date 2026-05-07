@@ -39,7 +39,7 @@ export async function applyDeliveredSettlement(order, orderIdString) {
 
   // 3. Delivery Partner Earnings & Cash Collection
   if (order.deliveryBoy) {
-    const deliveryEarning = order.pricing?.deliveryFee || 0;
+    const deliveryEarning = Math.max(order.pricing?.deliveryFee || 0, 25); // Min payout ₹25 even if free delivery
     await Transaction.create({
       user: order.deliveryBoy,
       userModel: "Delivery",

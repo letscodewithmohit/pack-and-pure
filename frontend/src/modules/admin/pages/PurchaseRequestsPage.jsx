@@ -243,6 +243,8 @@ const PurchaseRequestsPage = () => {
           { key: "vendorName", label: "Vendor" },
           { key: "product", label: "Product & Spec" },
           { key: "quantity", label: "Qty" },
+          { key: "unitCost", label: "Cost (Base)" },
+          { key: "gstAmount", label: "GST" },
           { key: "statusLabel", label: "Inventory Stage" },
         ]}
         rows={rows}
@@ -393,6 +395,9 @@ const PurchaseRequestsPage = () => {
           { label: "Product", value: currentRow?.product },
           { label: "Quantity", value: `${currentRow?.quantity} Units` },
           { label: "Unit Cost", value: `₹${currentRow?.unitCost || 0}` },
+          { label: "GST Rate", value: `${currentRow?.gstRate || 0}%` },
+          { label: "GST Amount", value: `₹${currentRow?.gstAmount || 0}` },
+          { label: "Total Cost", value: `₹${(currentRow?.unitCost || 0) * (currentRow?.quantity || 0) + (currentRow?.gstAmount || 0)}` },
           { label: "Current Stage", value: currentRow?.statusLabel },
           { label: "Pickup Partner", value: currentRow?.pickupPartnerName || "Unassigned" },
           { label: "ETA", value: currentRow?.eta ? new Date(currentRow.eta).toLocaleString() : "N/A" },

@@ -96,40 +96,30 @@ const Dashboard = () => {
 
   const stats = [
     {
-      label: "Total Revenue",
+      label: "Total Supply Value",
       value: statsData?.overview?.totalSales || "₹0",
       change: "+12.5%",
       changeType: "increase",
       icon: DollarSign,
       iconBg: "bg-emerald-50",
       iconColor: "text-emerald-600",
-      description: "vs last month",
+      description: "all-time earnings",
     },
     {
-      label: "Total Orders",
+      label: "Fulfillment Tasks",
       value: statsData?.overview?.totalOrders || "0",
       change: "+8.2%",
       changeType: "increase",
       icon: ShoppingBag,
       iconBg: "bg-blue-50",
       iconColor: "text-blue-600",
-      description: "vs last month",
-    },
-    {
-      label: "Avg Order Value",
-      value: statsData?.overview?.avgOrderValue || "₹0",
-      change: "+2",
-      changeType: "increase",
-      icon: Package,
-      iconBg: "bg-purple-50",
-      iconColor: "text-purple-600",
-      description: "per order",
+      description: "total PRs handled",
     },
     {
       label: "Pending Supplies",
       value: statsData?.overview?.pendingPRs || "0",
-      change: "-3",
-      changeType: "decrease",
+      change: "Action Required",
+      changeType: "increase",
       icon: Clock,
       iconBg: "bg-orange-50",
       iconColor: "text-orange-600",
@@ -139,26 +129,26 @@ const Dashboard = () => {
 
   const quickActions = [
     {
-      title: "Add New Product",
-      description: "List a new item in your store",
-      icon: Plus,
-      path: "/seller/products/add",
-      variant: "primary", // dark bg, white text
-    },
-    {
       label: "View Purchase Orders",
-      title: "View Purchase Orders",
-      description: "View and manage procurement requests",
+      title: "View Tasks",
+      description: "Manage and fulfill procurement requests",
       icon: Truck,
       path: "/seller/procurement",
-      variant: "outline",
+      variant: "primary",
     },
     {
       title: "View Earnings",
       description: "Check your revenue and payouts",
       icon: DollarSign,
       path: "/seller/earnings",
-      variant: "outline-emerald", // white bg, border, emerald accent
+      variant: "outline",
+    },
+    {
+      title: "Manage Stock",
+      description: "Update your inventory levels",
+      icon: Package,
+      path: "/seller/stock",
+      variant: "outline",
     },
   ];
 
@@ -329,9 +319,9 @@ const Dashboard = () => {
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6">
         {/* Revenue Chart */}
-        <Card title="Revenue Overview" subtitle="Last 7 days performance" className="lg:col-span-2">
+        <Card title="Supply Value Trend" subtitle="Last 7 days performance" className="w-full">
           <div className="h-[300px] min-h-[280px] w-full mt-4">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={revenueChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -364,7 +354,7 @@ const Dashboard = () => {
                     boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
                     color: "#334155",
                   }}
-                  formatter={(value) => [`₹${Number(value).toLocaleString()}`, "Revenue"]}
+                  formatter={(value) => [`₹${Number(value).toLocaleString()}`, "Supply Value"]}
                   labelFormatter={(label) => `Day: ${label}`}
                 />
                 <Area
@@ -379,37 +369,8 @@ const Dashboard = () => {
             </ResponsiveContainer>
           </div>
         </Card>
-
-        {/* Product Performance */}
-        <Card title="Top Categories" subtitle="Sales by category">
-          <div className="h-[300px] min-h-[280px] w-full mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={statsData?.categoryMix || []} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: "#475569", fontSize: 12 }} />
-                <YAxis
-                  type="category"
-                  dataKey="subject"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: "#475569", fontSize: 12 }}
-                  width={80}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "white",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: "8px",
-                    boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                    color: "#334155",
-                  }}
-                />
-                <Bar dataKey="A" fill="#4f46e5" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
       </div>
+
 
       {/* Recent Purchase Orders */}
       <Card
@@ -425,7 +386,34 @@ const Dashboard = () => {
           </button>
         }
       >
-        <div className="overflow-x-auto">
+        {/* Mobile View: Stacked Cards */}
+        <div className="block md:hidden space-y-3 mt-3">
+          {recentPRs.map((pr) => (
+            <div key={pr._id} className="p-4 rounded-2xl border border-slate-100 bg-white shadow-sm flex flex-col gap-2">
+              <div className="flex justify-between items-start">
+                <span className="text-sm font-black text-slate-900">{pr.requestId}</span>
+                <Badge variant={getStatusColor(pr.status)} className="capitalize text-[10px] px-2 py-0.5 font-bold tracking-wider">
+                  {pr.status?.replace(/_/g, ' ')}
+                </Badge>
+              </div>
+              <div className="flex flex-col gap-1 text-xs text-slate-500 font-bold">
+                <p>Destination: <span className="text-slate-800">Central Hub</span></p>
+                <p>Date: <span className="text-slate-800">{new Date(pr.createdAt).toLocaleDateString()}</span></p>
+                <p>Item: <span className="text-slate-800">{pr.product || (Array.isArray(pr.items) && pr.items.length > 0 ? pr.items[0].productName : "Products")}</span></p>
+              </div>
+              <div className="flex justify-between items-center border-t border-slate-50 pt-2 mt-1">
+                <span className="text-xs font-bold text-slate-400">Total Amount</span>
+                <span className="text-sm font-black text-slate-900">₹{Number(pr.unitCost * pr.quantity).toFixed(2)}</span>
+              </div>
+            </div>
+          ))}
+          {recentPRs.length === 0 && (
+            <p className="py-8 text-center text-slate-500 font-medium">No recent purchase orders found</p>
+          )}
+        </div>
+
+        {/* Desktop View: Full Table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100">

@@ -149,12 +149,10 @@ const ProcurementRequests = () => {
   };
 
   const buildCommittedItemsPayload = (row) => {
-    const perRow = commitMap[row._id] || {};
     return (row.items || [])
       .map((it) => {
-        const pid = String(it.productId || "");
-        const raw = perRow[pid];
-        const committedQty = Math.max(0, Number(String(raw ?? "").trim() || 0));
+        const pid = String(it.productId?._id || it.productId || "");
+        const committedQty = Number(it.shortageQty ?? it.requiredQty ?? 0);
         return { productId: pid, committedQty };
       })
       .filter((x) => x.productId);
@@ -261,22 +259,17 @@ const ProcurementRequests = () => {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-sm font-black text-slate-900">
-                      {row.requestId}{" "}
-                      {row.orderCode ? (
-                        <span className="text-slate-500">· Order {row.orderCode}</span>
-                      ) : null}
+                    <p className="text-sm font-black text-slate-900 flex items-center gap-2">
+                      <span className="bg-slate-900 text-white px-2 py-0.5 rounded text-[10px] uppercase tracking-tighter">PR Task</span>
+                      {row.requestId}
                     </p>
-                    <p className="mt-1 text-xs font-medium text-slate-500">
-                      Hub: {row.hubId} · Updated:{" "}
-                      {row.updatedAt ? new Date(row.updatedAt).toLocaleString("en-IN") : "-"}
+                    <p className="mt-1 text-[11px] font-bold text-slate-500 uppercase tracking-tight">
+                      Destination: <span className="text-indigo-600 font-black">{row.hubId}</span> · Issued:{" "}
+                      {row.createdAt ? new Date(row.createdAt).toLocaleDateString("en-IN") : "-"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant={statusVariant(row.status)}>{row.status}</Badge>
-                    <Badge variant={statusVariant(row.vendorResponse?.status)}>
-                      {row.vendorResponse?.status || "pending"}
-                    </Badge>
+                    <Badge variant={statusVariant(row.status)} className="font-black text-[10px] uppercase">{row.status.replace('_', ' ')}</Badge>
                   </div>
                 </div>
 
@@ -300,28 +293,9 @@ const ProcurementRequests = () => {
                         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                           <span>Qty: <span className="text-indigo-600">{item.requiredQty} {item.unit}</span></span>
                           <span>Rate: <span className="text-emerald-600">₹{item.unitCost}</span></span>
+                          <span>GST: <span className="text-amber-600">{item.gstRate || 0}% (₹{item.gstAmount || 0})</span></span>
+                          <span className="bg-emerald-50 px-1.5 py-0.5 rounded text-emerald-700">Net Total: ₹{Number((item.unitCost * (item.shortageQty || item.requiredQty)) + (item.gstAmount || 0)).toFixed(2)}</span>
                           <span>Shortage: <span className="text-rose-500">{item.shortageQty}</span></span>
-                        </div>
-                        <div className="mt-2 flex items-center gap-2">
-                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                            Commit
-                          </span>
-                          <Input
-                            value={commitMap[row._id]?.[String(item.productId)] ?? ""}
-                            onChange={(e) => {
-                              const nextVal = e.target.value.replace(/[^\d]/g, "").slice(0, 6);
-                              setCommitMap((prev) => ({
-                                ...prev,
-                                [row._id]: {
-                                  ...(prev[row._id] || {}),
-                                  [String(item.productId)]: nextVal,
-                                },
-                              }));
-                            }}
-                            disabled={!canCommitQuantities(row) || !isVerified}
-                            className="max-w-[110px]"
-                            placeholder="0"
-                          />
                         </div>
                       </div>
                     </div>
@@ -336,7 +310,7 @@ const ProcurementRequests = () => {
                     isLoading={savingId === `${row._id}:commit`}
                     disabled={!canCommitQuantities(row) || !isVerified}
                   >
-                    Commit Qty
+                    Accept
                   </Button>
                   <Button
                     variant="danger"

@@ -292,11 +292,23 @@ const PendingSellers = () => {
                                                     <HiOutlinePhone className="h-4 w-4 text-slate-400" />
                                                     <span className="text-xs font-bold text-slate-700">{viewingSeller.phone}</span>
                                                 </div>
-                                                <div className="flex items-center gap-3">
-                                                    <HiOutlineMapPin className="h-4 w-4 text-slate-400" />
-                                                    <span className="text-xs font-semibold text-slate-500">
-                                                        {viewingSeller.location?.coordinates?.join(', ') || "No Location Specified"}
-                                                    </span>
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-3">
+                                                        <HiOutlineMapPin className="h-4 w-4 text-slate-400" />
+                                                        <span className="text-xs font-semibold text-slate-500">
+                                                            {viewingSeller.address || viewingSeller.location?.coordinates?.join(', ') || "No Location Specified"}
+                                                        </span>
+                                                    </div>
+                                                    {viewingSeller.location?.coordinates?.[0] && viewingSeller.location?.coordinates?.[1] && (
+                                                        <a 
+                                                            href={`https://www.google.com/maps?q=${viewingSeller.location.coordinates[1]},${viewingSeller.location.coordinates[0]}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="text-[9px] font-black text-indigo-600 uppercase hover:underline"
+                                                        >
+                                                            View on Map
+                                                        </a>
+                                                    )}
                                                 </div>
                                             </div>
 

@@ -29,7 +29,7 @@ export const planHubFulfillment = async (orderItems, hubId = HUB_ID) => {
   const [inventoryRows, products] = await Promise.all([
     HubInventory.find({ hubId, productId: { $in: productIds } }).lean(),
     Product.find({ _id: { $in: productIds } })
-      .select("_id sellerId sku name headerId categoryId subcategoryId ownerType price salePrice")
+      .select("_id sellerId sku name headerId categoryId subcategoryId ownerType price salePrice purchasePrice gstRate")
       .lean(),
   ]);
 
@@ -175,7 +175,7 @@ export const createAutoPurchaseRequests = async ({
       stock: { $gt: 0 },
       $or: matchOr,
     })
-      .select("_id sellerId stock sku name headerId categoryId subcategoryId price salePrice")
+      .select("_id sellerId stock sku name headerId categoryId subcategoryId price salePrice purchasePrice gstRate")
       .lean();
 
     if (!candidates.length) return [];
@@ -225,6 +225,7 @@ export const createAutoPurchaseRequests = async ({
             : vendor.qualityRank === 2
               ? "cheapest_name_category_match"
               : "cheapest_category_match",
+        gstRate: vendor.gstRate || 0,
       });
       remaining -= canTake;
     }
@@ -238,7 +239,7 @@ export const createAutoPurchaseRequests = async ({
   const fallbackProducts = shortageProductIds.length
     ? await Product.find({ _id: { $in: shortageProductIds } })
         .select(
-          "_id sellerId sku name headerId categoryId subcategoryId ownerType stock price salePrice",
+          "_id sellerId sku name headerId categoryId subcategoryId ownerType stock price salePrice purchasePrice gstRate",
         )
         .lean()
     : [];
@@ -258,6 +259,8 @@ export const createAutoPurchaseRequests = async ({
         vendorUnitCost: selfCost,
         vendorQuotedPrice: selfCost,
         pricingStrategy: "direct_vendor_mapping",
+        gstRate: baseProduct?.gstRate || 0,
+        gstAmount: Math.round(selfCost * (item.shortageQty || 0) * ((baseProduct?.gstRate || 0) / 100)),
         marginType: DEFAULT_PROCUREMENT_MARGIN_TYPE,
         marginValue: DEFAULT_PROCUREMENT_MARGIN_VALUE,
       });
@@ -272,6 +275,8 @@ export const createAutoPurchaseRequests = async ({
           vendorUnitCost: normalizeMoney(effectiveCatalogPrice(baseProduct)),
           vendorQuotedPrice: normalizeMoney(effectiveCatalogPrice(baseProduct)),
           pricingStrategy: "fallback_catalog_price",
+          gstRate: baseProduct?.gstRate || 0,
+          gstAmount: Math.round(normalizeMoney(effectiveCatalogPrice(baseProduct)) * (item.shortageQty || 0) * ((baseProduct?.gstRate || 0) / 100)),
           marginType: DEFAULT_PROCUREMENT_MARGIN_TYPE,
           marginValue: DEFAULT_PROCUREMENT_MARGIN_VALUE,
         });
@@ -285,6 +290,8 @@ export const createAutoPurchaseRequests = async ({
             vendorUnitCost: sel.vendorUnitCost,
             vendorQuotedPrice: sel.vendorQuotedPrice,
             pricingStrategy: sel.pricingStrategy,
+            gstRate: sel.gstRate || 0,
+            gstAmount: Math.round(sel.vendorUnitCost * (sel.qtyToProcure || 0) * ((sel.gstRate || 0) / 100)),
             marginType: DEFAULT_PROCUREMENT_MARGIN_TYPE,
             marginValue: DEFAULT_PROCUREMENT_MARGIN_VALUE,
           });
@@ -332,6 +339,8 @@ export const createAutoPurchaseRequests = async ({
         vendorUnitCost: i.vendorUnitCost || 0,
         vendorQuotedPrice: i.vendorQuotedPrice || 0,
         pricingStrategy: i.pricingStrategy || "",
+        gstRate: i.gstRate || 0,
+        gstAmount: i.gstAmount || 0,
       })),
       notes:
         vendorId === null

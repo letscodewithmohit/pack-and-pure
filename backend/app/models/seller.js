@@ -35,6 +35,11 @@ const sellerSchema = new mongoose.Schema(
       trim: true,
     },
 
+    address: {
+      type: String,
+      default: "",
+    },
+
     role: {
       type: String,
       default: "seller",

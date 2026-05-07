@@ -38,33 +38,44 @@ const WithdrawalRequests = () => {
 
     const [sellerRequests, setSellerRequests] = useState([]);
     const [deliveryRequests, setDeliveryRequests] = useState([]);
+    const [pickupRequests, setPickupRequests] = useState([]);
     const [sellerPage, setSellerPage] = useState(1);
     const [deliveryPage, setDeliveryPage] = useState(1);
+    const [pickupPage, setPickupPage] = useState(1);
     const [pageSize, setPageSize] = useState(25);
     const [sellerTotal, setSellerTotal] = useState(0);
     const [deliveryTotal, setDeliveryTotal] = useState(0);
+    const [pickupTotal, setPickupTotal] = useState(0);
 
-    const fetchData = async (sellerPageNum = 1, deliveryPageNum = 1) => {
+    const fetchData = async (sellerPageNum = 1, deliveryPageNum = 1, pickupPageNum = 1) => {
         try {
             setLoading(true);
-            const [sellerRes, deliveryRes] = await Promise.all([
-                adminApi.getSellerWithdrawals({ page: sellerPageNum, limit: pageSize }).catch(err => ({ data: { success: false, result: {} } })),
-                adminApi.getDeliveryWithdrawals({ page: deliveryPageNum, limit: pageSize }).catch(err => ({ data: { success: false, result: {} } }))
+            const [sellerRes, deliveryRes, pickupRes] = await Promise.all([
+                adminApi.getSellerWithdrawals({ page: sellerPageNum, limit: pageSize }).catch(() => ({ data: { success: false } })),
+                adminApi.getDeliveryWithdrawals({ page: deliveryPageNum, limit: pageSize }).catch(() => ({ data: { success: false } })),
+                adminApi.getPickupWithdrawals({ page: pickupPageNum, limit: pageSize }).catch(() => ({ data: { success: false } }))
             ]);
 
-            if (sellerRes.data.success) {
+            if (sellerRes.data?.success) {
                 const payload = sellerRes.data.result || {};
                 const items = Array.isArray(payload.items) ? payload.items : (sellerRes.data.results || []);
                 setSellerRequests(items);
-                setSellerTotal(typeof payload.total === 'number' ? payload.total : items.length);
-                setSellerPage(typeof payload.page === 'number' ? payload.page : sellerPageNum);
+                setSellerTotal(payload.total || items.length);
+                setSellerPage(payload.page || sellerPageNum);
             }
-            if (deliveryRes.data.success) {
+            if (deliveryRes.data?.success) {
                 const payload = deliveryRes.data.result || {};
                 const items = Array.isArray(payload.items) ? payload.items : (deliveryRes.data.results || []);
                 setDeliveryRequests(items);
-                setDeliveryTotal(typeof payload.total === 'number' ? payload.total : items.length);
-                setDeliveryPage(typeof payload.page === 'number' ? payload.page : deliveryPageNum);
+                setDeliveryTotal(payload.total || items.length);
+                setDeliveryPage(payload.page || deliveryPageNum);
+            }
+            if (pickupRes.data?.success) {
+                const payload = pickupRes.data.result || {};
+                const items = Array.isArray(payload.items) ? payload.items : (pickupRes.data.results || []);
+                setPickupRequests(items);
+                setPickupTotal(payload.total || items.length);
+                setPickupPage(payload.page || pickupPageNum);
             }
         } catch (error) {
             console.error("Fetch error:", error);
@@ -91,6 +102,7 @@ const WithdrawalRequests = () => {
     const stats = useMemo(() => {
         const sData = Array.isArray(sellerRequests) ? sellerRequests : [];
         const dData = Array.isArray(deliveryRequests) ? deliveryRequests : [];
+        const pData = Array.isArray(pickupRequests) ? pickupRequests : [];
 
         return {
             sellers: {
@@ -102,20 +114,29 @@ const WithdrawalRequests = () => {
                 pending: dData.filter(r => r.status === 'Pending' || r.status === 'Processing').length,
                 amount: Math.abs(dData.filter(r => r.status === 'Pending' || r.status === 'Processing').reduce((acc, r) => acc + (Number(r.amount) || 0), 0)),
                 processed: dData.filter(r => r.status === 'Settled').length
+            },
+            pickup: {
+                pending: pData.filter(r => r.status === 'Pending' || r.status === 'Processing').length,
+                amount: Math.abs(pData.filter(r => r.status === 'Pending' || r.status === 'Processing').reduce((acc, r) => acc + (Number(r.amount) || 0), 0)),
+                processed: pData.filter(r => r.status === 'Settled').length
             }
         };
     }, [sellerRequests, deliveryRequests]);
 
     const currentData = useMemo(() => {
-        const data = activeTab === 'sellers' ? (sellerRequests || []) : (deliveryRequests || []);
-        return data.filter(r => {
+        let data = [];
+        if (activeTab === 'sellers') data = sellerRequests;
+        else if (activeTab === 'delivery') data = deliveryRequests;
+        else data = pickupRequests;
+
+        return (data || []).filter(r => {
             const name = r.user?.shopName || r.user?.name || "";
             const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 r._id?.toLowerCase().includes(searchTerm.toLowerCase());
             const matchesStatus = filterStatus === 'all' || r.status?.toLowerCase() === filterStatus.toLowerCase();
             return matchesSearch && matchesStatus;
         });
-    }, [activeTab, sellerRequests, deliveryRequests, searchTerm, filterStatus]);
+    }, [activeTab, sellerRequests, deliveryRequests, pickupRequests, searchTerm, filterStatus]);
 
     const handleAction = (type, request) => {
         setActionModal({ isOpen: true, type, request });
@@ -216,6 +237,20 @@ const WithdrawalRequests = () => {
                                 activeTab === 'delivery' ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-600"
                             )}>{deliveryRequests.length}</span>
                         </button>
+                        <button
+                            onClick={() => setActiveTab('pickup')}
+                            className={cn(
+                                "flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold transition-all",
+                                activeTab === 'pickup' ? "bg-white text-slate-900 shadow-md" : "text-slate-500 hover:text-slate-700"
+                            )}
+                        >
+                            <Package className="h-4 w-4" />
+                            PICKUP PARTNERS
+                            <span className={cn(
+                                "ml-1 px-2 py-0.5 rounded-full text-[10px]",
+                                activeTab === 'pickup' ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-600"
+                            )}>{pickupRequests.length}</span>
+                        </button>
                     </div>
 
                     <div className="flex items-center gap-3">
@@ -266,9 +301,9 @@ const WithdrawalRequests = () => {
                                             <div className="flex items-center gap-4">
                                                 <div className={cn(
                                                     "h-12 w-12 rounded-2xl flex items-center justify-center shadow-inner",
-                                                    activeTab === 'sellers' ? "bg-indigo-50 text-indigo-600" : "bg-emerald-50 text-emerald-600"
+                                                    activeTab === 'sellers' ? "bg-indigo-50 text-indigo-600" : activeTab === 'delivery' ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
                                                 )}>
-                                                    {activeTab === 'sellers' ? <Building2 className="h-6 w-6" /> : <Truck className="h-6 w-6" />}
+                                                    {activeTab === 'sellers' ? <Building2 className="h-6 w-6" /> : activeTab === 'delivery' ? <Truck className="h-6 w-6" /> : <Package className="h-6 w-6" />}
                                                 </div>
                                                 <div>
                                                     <p className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors cursor-pointer" onClick={() => setSelectedRequest(req)}>
@@ -341,15 +376,20 @@ const WithdrawalRequests = () => {
                     </div>
                     <div className="px-6 py-3 border-t border-slate-100">
                         <Pagination
-                            page={activeTab === 'sellers' ? sellerPage : deliveryPage}
-                            totalPages={Math.ceil((activeTab === 'sellers' ? sellerTotal : deliveryTotal) / pageSize) || 1}
-                            total={activeTab === 'sellers' ? sellerTotal : deliveryTotal}
+                            page={activeTab === 'sellers' ? sellerPage : activeTab === 'delivery' ? deliveryPage : pickupPage}
+                            totalPages={Math.ceil((activeTab === 'sellers' ? sellerTotal : activeTab === 'delivery' ? deliveryTotal : pickupTotal) / pageSize) || 1}
+                            total={activeTab === 'sellers' ? sellerTotal : activeTab === 'delivery' ? deliveryTotal : pickupTotal}
                             pageSize={pageSize}
-                            onPageChange={activeTab === 'sellers' ? fetchSellerPage : fetchDeliveryPage}
+                            onPageChange={(p) => {
+                                if (activeTab === 'sellers') fetchSellerPage(p);
+                                else if (activeTab === 'delivery') fetchDeliveryPage(p);
+                                else { fetchData(sellerPage, deliveryPage, p); setPickupPage(p); }
+                            }}
                             onPageSizeChange={(newSize) => {
                                 setPageSize(newSize);
                                 setSellerPage(1);
                                 setDeliveryPage(1);
+                                setPickupPage(1);
                             }}
                             loading={loading}
                         />

@@ -105,6 +105,15 @@ export const getProducts = async (req, res) => {
     if (status) query.status = status;
     if (sellerId) query.sellerId = sellerId;
 
+    // Quick Filters based on stock status
+    if (req.query.stockStatus === 'active') {
+      query.status = 'active';
+    } else if (req.query.stockStatus === 'low_stock') {
+      query.stock = { $gt: 0, $lte: 10 };
+    } else if (req.query.stockStatus === 'out_of_stock') {
+      query.stock = 0;
+    }
+
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: "i" } },
@@ -198,7 +207,7 @@ export const getProducts = async (req, res) => {
 
     const products = await Product.find(query)
       .select(
-        "name slug description price salePrice purchasePrice stock brand weight unit mainImage headerId categoryId subcategoryId sellerId ownerType status isFeatured variants createdAt",
+        "name slug description price salePrice purchasePrice stock brand weight unit mainImage headerId categoryId subcategoryId sellerId ownerType status isFeatured variants gstRate createdAt",
       )
       .populate("headerId", "name")
       .populate("categoryId", "name")
@@ -237,7 +246,21 @@ export const getProducts = async (req, res) => {
           {
             $group: {
               _id: "$masterProductId",
-              totalSellerStock: { $sum: "$stock" },
+              totalSellerStock: {
+                $sum: {
+                  $cond: {
+                    if: { $and: [{ $isArray: "$variants" }, { $gt: [{ $size: "$variants" }, 0] }] },
+                    then: {
+                      $reduce: {
+                        input: "$variants",
+                        initialValue: 0,
+                        in: { $add: ["$$value", { $ifNull: ["$$this.stock", 0] }] }
+                      }
+                    },
+                    else: { $ifNull: ["$stock", 0] }
+                  }
+                }
+              },
               minPurchasePrice: { $min: "$purchasePrice" },
               avgPurchasePrice: { $avg: "$purchasePrice" }
             },
@@ -256,6 +279,9 @@ export const getProducts = async (req, res) => {
       }
     }
 
+    const masterIds = products.map(p => p.masterProductId).filter(Boolean);
+    const masterProducts = masterIds.length > 0 ? await Product.find({ _id: { $in: masterIds } }).select('price salePrice').lean() : [];
+
     const productsWithSource = products.map((p) => {
       const pIdStr = String(p._id);
       const hubData = hubRowsForResult.find(r => String(r.productId) === pIdStr);
@@ -269,6 +295,13 @@ export const getProducts = async (req, res) => {
         // SOP Alignment: Use dynamic sellPrice from Hub Inventory if available
         const dynamicPrice = hubData?.sellPrice && hubData.sellPrice > 0 ? hubData.sellPrice : p.salePrice || p.price;
         
+        const syncedVariants = (p.variants || []).map((v, i) => {
+          if (i === 0 || !v.stock) {
+            return { ...v, stock: totalAvailableQty, price: dynamicPrice, salePrice: dynamicPrice };
+          }
+          return v;
+        });
+
         return {
           ...p,
           price: dynamicPrice, // Override with Hub Price
@@ -278,26 +311,61 @@ export const getProducts = async (req, res) => {
           availableQtyHub: hubQty,
           availableQtySeller: mappedSellerStock,
           totalAvailableQty,
+          variants: syncedVariants,
           fulfillmentSource: hubQty > 0 ? "hub" : totalAvailableQty > 0 ? "procure" : "out_of_stock",
         };
       }
       
+      const masterProduct = masterProducts.find(m => String(m._id) === String(p.masterProductId));
+      const customerPrice = masterProduct ? (masterProduct.salePrice || masterProduct.price) : (p.salePrice || p.price);
+
       // For seller products, check for hub price too if linked to a master
       const hubQtyForSeller = hubData ? Number(hubData.availableQty || 0) : 0;
+      const vSum = (p.variants && p.variants.length > 0) ? p.variants.reduce((sum, v) => sum + (Number(v.stock) || Number(p.stock) || 0), 0) : (Number(p.stock) || 0);
+      const calcStock = vSum > 0 ? vSum : (Number(p.stock) || 0);
+
+      const syncedVariants = (p.variants || []).map((v, i) => {
+        const parsedStock = Number(v.stock);
+        return {
+          ...v,
+          stock: Number.isFinite(parsedStock) ? parsedStock : calcStock
+        };
+      });
+
       return {
         ...p,
+        price: customerPrice || p.price,
+        salePrice: customerPrice || p.salePrice,
         availableQtyHub: hubQtyForSeller,
-        fulfillmentSource: p.stock > 0 ? "direct" : "out_of_stock"
+        stock: calcStock,
+        variants: syncedVariants,
+        fulfillmentSource: calcStock > 0 ? "direct" : "out_of_stock"
       };
     });
 
-    const total = await Product.countDocuments(query);
+    const statsQuery = { ...query };
+    delete statsQuery.status;
+    delete statsQuery.stock;
+    if (query.ownerType) statsQuery.ownerType = query.ownerType;
+
+    const [total, activeCount, lowStockCount, outOfStockCount] = await Promise.all([
+      Product.countDocuments(statsQuery),
+      Product.countDocuments({ ...statsQuery, status: 'active' }),
+      Product.countDocuments({ ...statsQuery, stock: { $gt: 0, $lte: 10 } }),
+      Product.countDocuments({ ...statsQuery, stock: 0 }),
+    ]);
 
     return handleResponse(res, 200, "Products fetched successfully", {
       items: productsWithSource,
       page,
       limit,
       total,
+      stats: {
+        total,
+        active: activeCount,
+        lowStock: lowStockCount,
+        outOfStock: outOfStockCount
+      },
       totalPages: Math.ceil(total / limit) || 1,
     });
   } catch (error) {
@@ -425,6 +493,18 @@ export const createProduct = async (req, res) => {
     if (productData.purchasePrice) productData.purchasePrice = Number(productData.purchasePrice);
     if (productData.stock) productData.stock = Number(productData.stock);
 
+    if (Array.isArray(productData.variants) && productData.variants.length > 0) {
+      productData.variants = productData.variants.map(v => {
+        const parsedStock = Number(v.stock);
+        return {
+          ...v,
+          price: Number(v.price) || Number(productData.price) || 0,
+          salePrice: Number(v.salePrice || v.price) || Number(productData.salePrice || productData.price) || 0,
+          stock: Number.isFinite(parsedStock) ? parsedStock : (Number(productData.stock) || 0)
+        };
+      });
+    }
+
     // If seller is creating, their price is the purchasePrice for the admin
     if (role !== "admin") {
       productData.purchasePrice = productData.price || 0;
@@ -528,7 +608,102 @@ export const updateProduct = async (req, res) => {
     }
 
     if (role === "admin" && product.ownerType === "seller") {
-      // Admin is allowed to change status but not sellerId
+      let parsedVars = [];
+      if (typeof productData.variants === "string") {
+        try {
+          parsedVars = JSON.parse(productData.variants);
+        } catch (e) {}
+      } else if (Array.isArray(productData.variants)) {
+        parsedVars = productData.variants;
+      }
+
+      const sellPrice = Number(productData.customerPrice || productData.price || productData.salePrice);
+      if (product.masterProductId) {
+        const masterUpdate = {};
+        if (sellPrice > 0) {
+          masterUpdate.price = sellPrice;
+          masterUpdate.salePrice = sellPrice;
+        }
+        if (parsedVars && parsedVars.length > 0) {
+          masterUpdate.variants = parsedVars.map(v => ({
+            name: v.name,
+            price: Number(v.price) || sellPrice,
+            salePrice: Number(v.salePrice || v.price) || sellPrice,
+            sku: v.sku || ''
+          }));
+        }
+        if (Object.keys(masterUpdate).length > 0) {
+          await Product.findByIdAndUpdate(product.masterProductId, { $set: masterUpdate });
+          if (sellPrice > 0) {
+            await mongoose.model("HubInventory").updateMany({ productId: product.masterProductId }, { $set: { sellPrice: sellPrice } });
+          }
+        }
+      } else if (sellPrice > 0) {
+        let existingMaster = await Product.findOne({
+          name: { $regex: new RegExp(`^${String(product.name || '').trim()}$`, "i") },
+          ownerType: "admin"
+        });
+        
+        if (!existingMaster) {
+          const masterSlug = await ensureUniqueSlug(product.slug + "-master");
+          const masterSku = await ensureUniqueSku(`M-${product.sku || Date.now()}`);
+
+          const newMasterData = {
+            name: product.name,
+            slug: masterSlug,
+            sku: masterSku,
+            description: product.description,
+            price: sellPrice,
+            salePrice: sellPrice,
+            purchasePrice: product.price || 0,
+            stock: product.stock || 0,
+            unit: product.unit || 'Pieces',
+            headerId: product.headerId,
+            categoryId: product.categoryId,
+            subcategoryId: product.subcategoryId,
+            brand: product.brand,
+            weight: product.weight,
+            tags: product.tags,
+            status: "active",
+            ownerType: "admin",
+            mainImage: product.mainImage,
+            galleryImages: product.galleryImages,
+            variants: parsedVars.length > 0 ? parsedVars.map(v => {
+              const parsedStock = Number(v.stock);
+              return {
+                name: v.name,
+                price: Number(v.price) || sellPrice,
+                salePrice: Number(v.salePrice || v.price) || sellPrice,
+                stock: Number.isFinite(parsedStock) ? parsedStock : (Number(product.stock) || 0),
+                sku: v.sku || ''
+              };
+            }) : (product.variants || []).map(v => {
+              const vObj = v.toObject ? v.toObject() : v;
+              const parsedStock = Number(vObj.stock);
+              return {
+                ...vObj,
+                price: Number(vObj.price) || sellPrice,
+                salePrice: Number(vObj.salePrice || vObj.price) || sellPrice,
+                stock: Number.isFinite(parsedStock) ? parsedStock : (Number(product.stock) || 0),
+                sku: vObj.sku || ''
+              };
+            })
+          };
+          existingMaster = new Product(newMasterData);
+          await existingMaster.save();
+        } else {
+          existingMaster.price = sellPrice;
+          existingMaster.salePrice = sellPrice;
+          await existingMaster.save();
+        }
+        
+        productData.masterProductId = existingMaster._id;
+      }
+
+      delete productData.price;
+      delete productData.salePrice;
+      delete productData.purchasePrice;
+      delete productData.customerPrice;
       delete productData.sellerId;
     } else if (role !== "admin") {
       delete productData.sellerId;
@@ -545,27 +720,19 @@ export const updateProduct = async (req, res) => {
       }
     }
 
-    if (typeof productData.variants === "string") {
-      try {
-        productData.variants = JSON.parse(productData.variants);
-      } catch (e) {
-        // Fallback or keep current variants
-      }
-    }
-
-    // Typecast numbers to ensure database integrity
-    if (productData.price !== undefined) productData.price = Number(productData.price);
-    if (productData.salePrice !== undefined) productData.salePrice = Number(productData.salePrice);
-    if (productData.purchasePrice !== undefined) productData.purchasePrice = Number(productData.purchasePrice);
-    if (productData.stock !== undefined) productData.stock = Number(productData.stock);
-
-    // HUB-FIRST SOP: Seller price is supply cost; keep seller fields aligned.
-    if (role !== "admin" && product.ownerType === "seller" && productData.price !== undefined) {
-      const supply = Number(productData.price);
-      if (Number.isFinite(supply)) {
-        productData.salePrice = supply;
-        productData.purchasePrice = supply;
-      }
+    if (Array.isArray(productData.variants) && productData.variants.length > 0) {
+      let totalStock = 0;
+      productData.variants = productData.variants.map(v => {
+        const vStock = Number(v.stock) || 0;
+        totalStock += vStock;
+        return {
+          ...v,
+          price: Number(v.price) || Number(productData.price || product.price) || 0,
+          salePrice: Number(v.salePrice || v.price) || Number(productData.salePrice || productData.price || product.salePrice) || 0,
+          stock: vStock
+        };
+      });
+      productData.stock = totalStock;
     }
 
     // Smart Mapping & Merge Logic: If masterProductId is changed by Admin
@@ -699,6 +866,18 @@ export const updateProduct = async (req, res) => {
       }
     }
 
+    if (Array.isArray(productData.variants) && productData.variants.length > 0) {
+      productData.variants = productData.variants.map(v => {
+        const parsedStock = Number(v.stock);
+        return {
+          ...v,
+          price: Number(v.price) || Number(productData.price) || (product ? product.price : 0),
+          salePrice: Number(v.salePrice || v.price) || Number(productData.salePrice || productData.price) || (product ? product.salePrice : 0),
+          stock: Number.isFinite(parsedStock) ? parsedStock : (Number(productData.stock) || (product ? product.stock : 0))
+        };
+      });
+    }
+
     const updatedProduct = await Product.findByIdAndUpdate(
       id,
       { $set: productData },
@@ -741,30 +920,13 @@ export const updateProduct = async (req, res) => {
         await Product.findByIdAndUpdate(id, { $set: updates });
       }
 
-    // --- UNIVERSAL PROPAGATION: Master to Sellers (Simple & Variant Products) ---
+    // --- UNIVERSAL PROPAGATION: Master to Hub Inventory (Customer Selling Price) ---
     if (updatedProduct.ownerType === 'admin') {
         const currentMasterPrice = Number(productData.price || updatedProduct.price);
         if (currentMasterPrice > 0) {
-            console.log(`[Universal Sync] Master Product ${id} price updated. Propagating ₹${currentMasterPrice} to all linked sellers...`);
-            
-            // 1. Update main fields for all linked seller products
-            await Product.updateMany(
-                { masterProductId: id },
-                { $set: { price: currentMasterPrice, salePrice: currentMasterPrice } }
-            );
-
-            // 2. Update variants for all linked seller products (Deep Sync)
-            const linkedSellers = await Product.find({ masterProductId: id });
-            for (const sp of linkedSellers) {
-                if (sp.variants && sp.variants.length > 0) {
-                    sp.variants = sp.variants.map(v => ({
-                        ...v.toObject(),
-                        price: currentMasterPrice,
-                        salePrice: currentMasterPrice
-                    }));
-                    await sp.save();
-                }
-            }
+            await mongoose.model("HubInventory").updateMany({ productId: id }, { $set: { sellPrice: currentMasterPrice } });
+            console.log(`[Hub Sync] Master Product ${id} price updated. Customer selling price synced to Hub: ₹${currentMasterPrice}`);
+            // Note: We NO LONGER update seller prices here. Sellers maintain their own procurement rates.
         }
     }
 
@@ -1032,24 +1194,13 @@ export const propagatePriceUpdates = async (masterProduct) => {
 
         console.log(`[Exported Sync] Triggering full sync for Master ${masterProduct._id} -> ₹${newPrice}`);
 
-        // 1. Update main price fields
-        await mongoose.model('Product').updateMany(
-            { masterProductId: masterProduct._id },
-            { $set: { price: newPrice, salePrice: newPrice } }
+        // 1. Update Hub Inventory selling price
+        await mongoose.model("HubInventory").updateMany(
+            { productId: masterProduct._id },
+            { $set: { sellPrice: newPrice } }
         );
 
-        // 2. Update variants for all linked sellers
-        const linkedProducts = await mongoose.model('Product').find({ masterProductId: masterProduct._id });
-        for (const lp of linkedProducts) {
-            if (lp.variants && lp.variants.length > 0) {
-                lp.variants = lp.variants.map(v => ({
-                    ...v.toObject(),
-                    price: newPrice,
-                    salePrice: newPrice
-                }));
-                await lp.save();
-            }
-        }
+        console.log(`[Exported Sync] Hub price updated for Master ${masterProduct._id} -> ₹${newPrice}. Seller prices preserved.`);
     } catch (err) {
         console.error("[propagatePriceUpdates] Sync failed:", err.message);
     }

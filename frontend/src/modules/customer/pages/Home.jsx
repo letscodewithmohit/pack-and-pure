@@ -467,23 +467,23 @@ const Home = () => {
         productParams.lng = currentLocation.longitude;
       }
 
-        const [catRes, prodRes, expRes, sectionsRes] = await Promise.all([
-          customerApi.getCategories(),
-          hasValidLocation
-            ? customerApi.getProducts(productParams)
-            : Promise.resolve({ data: { success: true, result: { items: [] } } }),
-          customerApi
-            .getExperienceSections({ pageType: "home" })
-            .catch(() => null),
-          hasValidLocation
-            ? customerApi
-                .getOfferSections({
-                  lat: currentLocation.latitude,
-                  lng: currentLocation.longitude,
-                })
-                .catch(() => ({ data: {} }))
-            : Promise.resolve({ data: { results: [] } }),
-        ]);
+      const [catRes, prodRes, expRes, sectionsRes] = await Promise.all([
+        customerApi.getCategories(),
+        hasValidLocation
+          ? customerApi.getProducts(productParams)
+          : Promise.resolve({ data: { success: true, result: { items: [] } } }),
+        customerApi
+          .getExperienceSections({ pageType: "home" })
+          .catch(() => null),
+        hasValidLocation
+          ? customerApi
+            .getOfferSections({
+              lat: currentLocation.latitude,
+              lng: currentLocation.longitude,
+            })
+            .catch(() => ({ data: {} }))
+          : Promise.resolve({ data: { results: [] } }),
+      ]);
 
       if (catRes.data.success) {
         const dbCats = catRes.data.results || catRes.data.result || [];
@@ -510,17 +510,17 @@ const Home = () => {
             // Theme / banner still come from local metadata for now
             const meta = CATEGORY_METADATA[catName] ||
               CATEGORY_METADATA[
-                catName.charAt(0).toUpperCase() + catName.slice(1).toLowerCase()
+              catName.charAt(0).toUpperCase() + catName.slice(1).toLowerCase()
               ] ||
               CATEGORY_METADATA[catName.toUpperCase()] || {
-                icon: Sparkles,
-                theme: DEFAULT_CATEGORY_THEME,
-                banner: {
-                  title: catName.toUpperCase(),
-                  subtitle: "TOP PICKS",
-                  floatingElements: "sparkles",
-                },
-              };
+              icon: Sparkles,
+              theme: DEFAULT_CATEGORY_THEME,
+              banner: {
+                title: catName.toUpperCase(),
+                subtitle: "TOP PICKS",
+                floatingElements: "sparkles",
+              },
+            };
 
             // Icon is fully driven by admin-chosen iconId, mapped to MUI
             const IconComp =
@@ -548,12 +548,12 @@ const Home = () => {
 
         const mergedAllCategory = allHeaderFromAdmin
           ? {
-              ...ALL_CATEGORY,
-              // Preserve special id/_id used in UI logic, but take color and icon from admin
-              headerColor:
-                allHeaderFromAdmin.headerColor || ALL_CATEGORY.headerColor,
-              icon: allHeaderFromAdmin.icon || ALL_CATEGORY.icon,
-            }
+            ...ALL_CATEGORY,
+            // Preserve special id/_id used in UI logic, but take color and icon from admin
+            headerColor:
+              allHeaderFromAdmin.headerColor || ALL_CATEGORY.headerColor,
+            icon: allHeaderFromAdmin.icon || ALL_CATEGORY.icon,
+          }
           : ALL_CATEGORY;
 
         const headersWithoutAll = formattedHeaders.filter(
@@ -582,7 +582,7 @@ const Home = () => {
               );
               if (match) setActiveCategory(match);
             }
-          } catch (e) {}
+          } catch (e) { }
         }
 
         // 2. Process Quick Navigation Categories (Horizontal Scroll)
@@ -703,9 +703,9 @@ const Home = () => {
             (payload.banners?.items?.length > 0 ||
               payload.categoryIds?.length > 0)
             ? {
-                banners: payload.banners || { items: [] },
-                categoryIds: payload.categoryIds || [],
-              }
+              banners: payload.banners || { items: [] },
+              categoryIds: payload.categoryIds || [],
+            }
             : { banners: { items: [] }, categoryIds: [] },
         );
       } catch (e) {
@@ -933,7 +933,7 @@ const Home = () => {
                   className={cn(
                     "flex",
                     !isInstantBannerJump &&
-                      "transition-transform duration-500 ease-out",
+                    "transition-transform duration-500 ease-out",
                   )}
                   style={{
                     transform: `translateX(-${mobileBannerIndex * 100}%)`,
@@ -1248,15 +1248,15 @@ const Home = () => {
                         .filter(Boolean)
                         .join(", ") ||
                         section.categoryId?.name) && (
-                        <p className="text-xs md:text-sm font-semibold text-black/75 mt-1">
-                          {(section.categoryIds || [])
-                            .map((c) =>
-                              typeof c === "object" && c?.name ? c.name : null,
-                            )
-                            .filter(Boolean)
-                            .join(", ") || section.categoryId?.name}
-                        </p>
-                      )}
+                          <p className="text-xs md:text-sm font-semibold text-black/75 mt-1">
+                            {(section.categoryIds || [])
+                              .map((c) =>
+                                typeof c === "object" && c?.name ? c.name : null,
+                              )
+                              .filter(Boolean)
+                              .join(", ") || section.categoryId?.name}
+                          </p>
+                        )}
                     </div>
                     <motion.div
                       whileHover={{ y: -4, rotate: -4, scale: 1.06 }}
@@ -1335,6 +1335,28 @@ const Home = () => {
           />
         </div>
       )}
+      {/* Brand Tagline Section - Premium & Minimalist */}
+      <section className="bg-slate-50/50 pt-0 pb-32 px-4 border-t border-slate-100 relative overflow-hidden">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-full">
+          <div className="absolute top-1/4 left-0 w-64 h-64 bg-green-100/40 rounded-full blur-[100px] pointer-events-none" />
+          <div className="absolute bottom-1/4 right-0 w-64 h-64 bg-amber-100/40 rounded-full blur-[100px] pointer-events-none" />
+        </div>
+
+        <div className="max-w-7xl mx-auto text-center relative z-10">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+            className="space-y-8"
+          >
+            <h2 className="text-4xl md:text-7xl font-[1000] text-slate-200/80 tracking-tighter leading-none select-none">
+              The Purest Choice in Your Pocket
+            </h2>
+
+          </motion.div>
+        </div>
+      </section>
     </div>
   );
 };

@@ -99,8 +99,10 @@ export const adminApi = {
     // Seller Withdrawals
     getSellerWithdrawals: (params) => axiosInstance.get('/admin/seller-withdrawals', { params }),
     getDeliveryWithdrawals: (params) => axiosInstance.get('/admin/delivery-withdrawals', { params }),
+    getPickupWithdrawals: (params) => axiosInstance.get('/admin/pickup-withdrawals', { params }),
     getSellerTransactions: (params) => axiosInstance.get('/admin/seller-transactions', { params }),
     updateWithdrawalStatus: (id, data) => axiosInstance.put(`/admin/withdrawals/${id}`, data),
+    settlePickupWallet: (data) => axiosInstance.post('/admin/settle-pickup-wallet', data),
     // Cash Collection Hub
     getDeliveryCashBalances: (params) => axiosInstance.get('/admin/delivery-cash', { params }),
     getRiderCashDetails: (id) => axiosInstance.get(`/admin/rider-cash-details/${id}`),

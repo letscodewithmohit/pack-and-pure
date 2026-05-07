@@ -168,7 +168,7 @@ export const placeOrder = async (req, res) => {
 
         // Always fetch the latest product data to ensure pricing/purchasePrice integrity
         const productData = await Product.findById(resolvedProductId)
-          .select("_id purchasePrice salePrice price")
+          .select("_id purchasePrice salePrice price gstRate")
           .lean();
 
         if (!productData) {
@@ -179,8 +179,8 @@ export const placeOrder = async (req, res) => {
           ...item,
           product: String(productData._id),
           purchasePrice: productData.purchasePrice || 0,
-          // Re-validate price from DB if needed, but for now we trust the payload's price or fallback
           price: item.price || productData.salePrice || productData.price,
+          gstRate: productData.gstRate || 0,
         });
       }
       orderItems = normalizedItems;
@@ -211,8 +211,23 @@ export const placeOrder = async (req, res) => {
       }
 
       // GST on (Subtotal - Discount + Delivery + Platform)
-      const taxableAmount = (validatedPricing.subtotal || 0) - (validatedPricing.discount || 0) + validatedPricing.deliveryFee + validatedPricing.platformFee;
-      validatedPricing.gst = Math.round(taxableAmount * (calc.gstPercentage / 100));
+      let totalItemGst = 0;
+      const subtotal = validatedPricing.subtotal || 0;
+      const discount = validatedPricing.discount || 0;
+      
+      orderItems = orderItems.map(item => {
+        const itemTotal = (item.price || 0) * (item.quantity || 0);
+        const discountShare = subtotal > 0 ? (itemTotal / subtotal) * discount : 0;
+        const itemTaxableAmount = Math.max(0, itemTotal - discountShare);
+        const rate = Number(item.gstRate || 0);
+        const amount = Math.round(itemTaxableAmount * (rate / 100));
+        totalItemGst += amount;
+        return { ...item, gstRate: rate, gstAmount: amount };
+      });
+
+      // GST on Services (Removed Global Fallback - Defaulting to 0% for fees)
+      const serviceGst = 0;
+      validatedPricing.gst = totalItemGst + serviceGst;
 
       // Final Total Recalculation
       validatedPricing.total = (validatedPricing.subtotal || 0) 

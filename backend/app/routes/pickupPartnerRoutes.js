@@ -13,6 +13,8 @@ import {
   markAssignmentPicked,
   markAssignmentHubDelivered,
   uploadPickupProofImage,
+  requestPickupWithdrawal,
+  getMyWithdrawals,
 } from "../controller/pickupPartnerController.js";
 import upload from "../middleware/uploadMiddleware.js";
 
@@ -62,6 +64,18 @@ router.post(
   allowRoles("pickup_partner", "admin"),
   upload.single("image"),
   uploadPickupProofImage,
+);
+router.post(
+  "/my/withdrawals",
+  verifyToken,
+  allowRoles("pickup_partner"),
+  requestPickupWithdrawal,
+);
+router.get(
+  "/my/withdrawals",
+  verifyToken,
+  allowRoles("pickup_partner"),
+  getMyWithdrawals,
 );
 
 export default router;

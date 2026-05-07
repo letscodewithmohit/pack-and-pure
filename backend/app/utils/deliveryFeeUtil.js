@@ -20,7 +20,7 @@ export async function calculateDeliveryFee(customerCoords) {
         distanceKm: 0, 
         deliveryFee: settings?.baseDeliveryFee ?? 20, 
         platformFee: settings?.platformFee ?? 3,
-        gstPercentage: settings?.gstPercentage ?? 5,
+        gstPercentage: 0,
         isOutOfRange: false 
       };
     }
@@ -35,7 +35,7 @@ export async function calculateDeliveryFee(customerCoords) {
     const perKmCharge = settings?.perKmDeliveryCharge ?? 10;
     const freeDeliveryThreshold = settings?.freeDeliveryThreshold ?? 500;
     const platformFee = settings?.platformFee ?? 3;
-    const gstPercentage = settings?.gstPercentage ?? 5;
+    const gstPercentage = 0; // Shifted to item-level taxation
     const maxServiceRadius = settings?.maxServiceRadius ?? 15;
 
     let deliveryFee = baseDeliveryFee;
@@ -63,7 +63,7 @@ export async function calculateDeliveryFee(customerCoords) {
       distanceKm: 0,
       deliveryFee: 20,
       platformFee: 3,
-      gstPercentage: 5,
+      gstPercentage: 0,
       isOutOfRange: false
     };
   }

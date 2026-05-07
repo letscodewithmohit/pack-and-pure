@@ -52,6 +52,7 @@ const ProductManagement = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
+  const [gstRates, setGstRates] = useState([0, 5, 12, 18, 28]);
 
   const fetchProducts = async (requestedPage = 1) => {
     setIsLoading(true);
@@ -85,9 +86,20 @@ const ProductManagement = () => {
     }
   };
 
+  const fetchGstRates = async () => {
+    try {
+      const res = await sellerApi.getSettings();
+      const data = res.data?.result ?? res.data;
+      if (data?.gstRates) setGstRates(data.gstRates);
+    } catch (err) {
+      console.error("Failed to fetch GST rates", err);
+    }
+  };
+
   useEffect(() => {
     fetchProducts(1);
     fetchCategories();
+    fetchGstRates();
   }, []);
 
   const categories = dbCategories;
@@ -110,6 +122,7 @@ const ProductManagement = () => {
   const [isVariantsViewModalOpen, setIsVariantsViewModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [modalTab, setModalTab] = useState("general");
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!isFilterOpen) return;
@@ -131,6 +144,7 @@ const ProductManagement = () => {
     salePrice: "",
     stock: "",
     lowStockAlert: 5,
+    gstRate: 0,
     unit: "Pieces",
     category: "",
     header: "",
@@ -185,6 +199,7 @@ const ProductManagement = () => {
       countryOfOrigin: master.countryOfOrigin || prev.countryOfOrigin,
       fssaiLicense: master.fssaiLicense || prev.fssaiLicense,
       customerCare: master.customerCare || prev.customerCare,
+      gstRate: master.gstRate || prev.gstRate,
     }));
     setShowMasterSuggestions(false);
     toast.success(`Mapped to Catalog: ${master.name}`);
@@ -228,9 +243,12 @@ const ProductManagement = () => {
   }), [safeProducts]);
 
   const handleSave = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
     try {
       if (!formData.name || !formData.price || !formData.stock || !formData.header || !formData.category || !formData.subcategory) {
         toast.error("Please fill all required fields, including categories");
+        setIsSaving(false);
         return;
       }
       const data = new FormData();
@@ -240,7 +258,7 @@ const ProductManagement = () => {
         'name', 'slug', 'sku', 'description', 'price', 'salePrice', 
         'stock', 'lowStockAlert', 'unit', 'tags', 'weight', 
         'brand', 'shelfLife', 'countryOfOrigin', 'fssaiLicense', 
-        'customerCare', 'masterProductId'
+        'customerCare', 'masterProductId', 'gstRate'
       ];
 
       fields.forEach(field => {
@@ -288,6 +306,8 @@ const ProductManagement = () => {
       fetchProducts();
     } catch (error) {
       toast.error(error.response?.data?.message || "Failed to save product");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -321,6 +341,7 @@ const ProductManagement = () => {
         salePrice: item.salePrice || "",
         stock: item.stock || "",
         lowStockAlert: item.lowStockAlert || 5,
+        gstRate: item.gstRate || 0,
         header: item.headerId?._id || item.headerId || "",
         category: item.categoryId?._id || item.categoryId || "",
         subcategory: item.subcategoryId?._id || item.subcategoryId || "",
@@ -351,6 +372,7 @@ const ProductManagement = () => {
         salePrice: "",
         stock: "",
         lowStockAlert: 5,
+        gstRate: 0,
         category: "",
         header: "",
         subcategory: "",
@@ -486,7 +508,43 @@ const ProductManagement = () => {
       {/* Product Table */}
       <BlurFade delay={0.3}>
         <Card className="relative z-10 border-none shadow-xl ring-1 ring-slate-100 overflow-hidden rounded-3xl mt-8">
-          <div className="overflow-x-auto">
+          {/* Mobile View: Stacked Cards */}
+          <div className="block md:hidden space-y-4 p-4 bg-slate-50/50">
+            {filteredProducts.map((p) => (
+              <div key={p._id || p.id} className="p-4 rounded-2xl border border-slate-100 bg-white shadow-sm flex flex-col gap-3">
+                <div className="flex items-center gap-4">
+                  <div className="h-16 w-16 flex-shrink-0 rounded-xl overflow-hidden bg-slate-100 ring-1 ring-slate-200">
+                    <img src={p.mainImage || p.image || "https://images.unsplash.com/photo-1550989460-0adf9ea622e2"} alt={p.name} className="h-full w-full object-cover" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-base font-bold text-slate-900 truncate">{p.name}</h4>
+                    <p className="text-xs font-mono text-slate-500 mt-0.5">SKU: {p.sku || "—"}</p>
+                    <p className="text-xs text-slate-500">{p.categoryId?.name || "N/A"}</p>
+                  </div>
+                </div>
+                
+                <div className="flex justify-between items-center border-t border-slate-50 pt-3 mt-1">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-slate-400">Price</span>
+                    <span className="text-base font-black text-slate-900">₹{p.salePrice || p.price}</span>
+                    {p.salePrice > 0 && <span className="text-xs text-slate-400 line-through">₹{p.price}</span>}
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <span className="text-xs font-bold text-slate-400">Stock</span>
+                    <span className={cn("text-base font-black", p.stock === 0 ? "text-rose-600" : p.stock <= 10 ? "text-amber-600" : "text-emerald-600")}>{p.stock}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => openEditModal(p)} className="p-2.5 hover:bg-slate-50 text-slate-600 ring-1 ring-slate-200 rounded-xl transition-all"><HiOutlinePencilSquare className="h-4 w-4" /></button>
+                    <button onClick={() => handleDeleteClick(p)} className="p-2.5 hover:bg-rose-50 hover:text-rose-600 text-slate-600 ring-1 ring-slate-200 rounded-xl transition-all"><HiOutlineTrash className="h-4 w-4" /></button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {filteredProducts.length === 0 && (
+              <p className="py-8 text-center text-slate-500 font-medium">No products found</p>
+            )}
+          </div>
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left border border-slate-200 border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
@@ -636,8 +694,10 @@ const ProductManagement = () => {
                           <input type="number" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value, salePrice: e.target.value })} className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-xl text-sm font-bold outline-none" />
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Hub procurement cost</p>
                         </div>
-                        <div className="space-y-1.5"><label className="text-xs font-bold text-slate-400 uppercase tracking-widest ml-1">Sale Price (auto)</label>
-                          <input type="number" value={formData.salePrice} readOnly className="w-full px-4 py-2.5 bg-slate-50 border-none rounded-xl text-sm font-bold text-slate-500 outline-none cursor-not-allowed" />
+                        <div className="space-y-1.5"><label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">GST Rate (%)</label>
+                          <select value={formData.gstRate} onChange={e => setFormData({ ...formData, gstRate: e.target.value })} className="w-full px-4 py-2.5 bg-indigo-50 border-none rounded-xl text-sm font-bold text-indigo-900 outline-none cursor-pointer">
+                            {gstRates.map(rate => <option key={rate} value={rate}>{rate}% GST</option>)}
+                          </select>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-6">
@@ -692,7 +752,7 @@ const ProductManagement = () => {
 
               <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
                 <button onClick={() => setIsProductModalOpen(false)} className="px-6 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 uppercase tracking-widest">Cancel</button>
-                <button onClick={handleSave} className="bg-slate-900 text-white px-10 py-2.5 rounded-xl text-xs font-bold shadow-xl hover:-translate-y-0.5 transition-all uppercase tracking-widest">Save Changes</button>
+                <button onClick={handleSave} disabled={isSaving} className="bg-slate-900 text-white px-10 py-2.5 rounded-xl text-xs font-bold shadow-xl hover:-translate-y-0.5 transition-all uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed">{isSaving ? "Saving..." : "Save Changes"}</button>
               </div>
             </motion.div>
           </div>

@@ -268,9 +268,16 @@ const CheckoutPage = () => {
     ? selectedCoupon.discountAmount || selectedCoupon.discount || 0
     : 0;
 
-  // GST calculation based on dynamic percentage
-  const taxableAmount = cartTotal - discountAmount + deliveryFee + platformFee;
-  const gst = Math.round(taxableAmount * (gstPercentage / 100));
+  // GST calculation based on per-item rates
+  const itemGst = cart.reduce((acc, item) => {
+    const rate = item.gstRate || 0;
+    const itemTotal = (item.price || 0) * (item.quantity || 0);
+    // Apply pro-rata discount if applicable (simplified for frontend display)
+    const discountShare = cartTotal > 0 ? (itemTotal / cartTotal) * discountAmount : 0;
+    const taxableAmount = Math.max(0, itemTotal - discountShare);
+    return acc + (taxableAmount * (rate / 100));
+  }, 0);
+  const gst = Math.round(itemGst);
 
   const totalAmount =
     cartTotal - discountAmount + deliveryFee + platformFee + gst + selectedTip;
@@ -1270,8 +1277,8 @@ const CheckoutPage = () => {
                     <span className="text-slate-500 font-bold text-[13px] uppercase tracking-wider">
                       GST
                     </span>
-                    <span className="text-[10px] text-slate-400 font-medium">
-                      Standard 5% tax
+                    <span className="text-[10px] text-slate-400 font-medium italic">
+                      (Item-wise Breakdown)
                     </span>
                   </div>
                   <span className="font-black text-slate-800">₹{gst}</span>

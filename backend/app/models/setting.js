@@ -116,6 +116,10 @@ const settingSchema = new mongoose.Schema(
             type: Number,
             default: 5, // Default 5%
         },
+        gstRates: {
+            type: [Number],
+            default: [0, 5, 12, 18, 28],
+        },
         maxServiceRadius: {
             type: Number,
             default: 15, // Default 15km

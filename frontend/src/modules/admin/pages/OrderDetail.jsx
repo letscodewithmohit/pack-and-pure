@@ -204,7 +204,9 @@ const OrderDetail = () => {
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Product Node</th>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Unit Price</th>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Qty</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">GST</th>
                                         <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Aggregate</th>
+
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
@@ -229,7 +231,14 @@ const OrderDetail = () => {
                                             <td className="px-6 py-5 text-center">
                                                 <span className="bg-slate-100 px-3 py-1 rounded-lg text-xs font-black text-slate-700">x{item.quantity}</span>
                                             </td>
-                                            <td className="px-6 py-5 text-right text-sm font-black text-slate-900">₹{item.price * item.quantity}</td>
+                                            <td className="px-6 py-5 text-center">
+                                                <div className="flex flex-col items-center">
+                                                    <span className="text-xs font-bold text-slate-600">₹{item.gstAmount || 0}</span>
+                                                    <span className="text-[10px] text-slate-400 font-bold">({item.gstRate || 0}%)</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-5 text-right text-sm font-black text-slate-900">₹{(item.price * item.quantity) + (item.gstAmount || 0)}</td>
+
                                         </tr>
                                     ))}
                                 </tbody>

@@ -116,6 +116,10 @@ const productSchema = new mongoose.Schema(
             type: Boolean,
             default: false,
         },
+        gstRate: {
+            type: Number,
+            default: 0, // In percentage, e.g., 5, 12, 18
+        },
         masterProductId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Product",
