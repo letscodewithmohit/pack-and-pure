@@ -47,7 +47,7 @@ const AddProduct = () => {
     brand: "",
     mainImage: null,
     masterProductId: "",
-    galleryImages: [],
+    galleryItems: [],
     variants: [
       {
         id: Date.now(),
@@ -187,10 +187,17 @@ const AddProduct = () => {
         data.append("mainImage", formData.mainImageFile);
       }
       
-      if (formData.galleryFiles && formData.galleryFiles.length > 0) {
-        formData.galleryFiles.forEach((file) => {
-          data.append("galleryImages", file);
-        });
+      // Gallery: send new files + tell backend which existing URLs to keep
+      const galleryFiles = (formData.galleryItems || []).filter(it => !!it?.file).map(it => it.file);
+      galleryFiles.forEach((file) => {
+        data.append("galleryImages", file);
+      });
+      // For updates, send existing URLs to keep (unused on create but harmless)
+      const keepGalleryImages = (formData.galleryItems || [])
+        .filter(it => !it?.file && typeof it?.preview === 'string')
+        .map(it => it.preview);
+      if (keepGalleryImages.length > 0) {
+        data.append('keepGalleryImages', JSON.stringify(keepGalleryImages));
       }
       
       await sellerApi.createProduct(data);
@@ -204,26 +211,45 @@ const AddProduct = () => {
   };
 
   const handleImageUpload = (e, type) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
+    const selected = Array.from(e?.target?.files || []);
+    if (selected.length === 0) return;
+
+    if (type === "main") {
+      const file = selected[0];
       const reader = new FileReader();
       reader.onloadend = () => {
-        if (type === "main") {
-          setFormData({
-            ...formData,
-            mainImage: reader.result,
-            mainImageFile: file
-          });
-        } else {
-          setFormData({
-            ...formData,
-            galleryImages: [...formData.galleryImages, reader.result],
-            galleryFiles: [...(formData.galleryFiles || []), file]
-          });
-        }
+        setFormData(prev => ({ ...prev, mainImage: reader.result, mainImageFile: file }));
       };
       reader.readAsDataURL(file);
+      return;
     }
+
+    // Gallery: allow multiple (max 5 total)
+    const remainingSlots = Math.max(0, 5 - (formData.galleryItems?.length || 0));
+    const filesToAdd = selected.slice(0, remainingSlots);
+    if (filesToAdd.length < selected.length) toast.message("Max 5 gallery images allowed");
+
+    filesToAdd.forEach((file) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData(prev => ({
+          ...prev,
+          galleryItems: [
+            ...(prev.galleryItems || []),
+            { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, preview: reader.result, file },
+          ],
+        }));
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  };
+
+  const removeGalleryItem = (id) => {
+    setFormData(prev => ({
+      ...prev,
+      galleryItems: (prev.galleryItems || []).filter(it => it.id !== id),
+    }));
   };
 
   const handleNameChange = async (e) => {
@@ -779,20 +805,18 @@ const AddProduct = () => {
               {/* Main Image Section */}
               <div className="space-y-3">
                 <label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">
-                  Main Cover Photo
+                  Cover Photo
                 </label>
                 <div className="flex flex-col md:flex-row items-start gap-6">
                   <div className="w-48 aspect-square rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center group hover:border-primary hover:bg-primary/5 transition-all cursor-pointer overflow-hidden relative">
                     <input
                       type="file"
+                      accept="image/*"
                       className="absolute inset-0 opacity-0 cursor-pointer z-10"
                       onChange={(e) => handleImageUpload(e, "main")}
                     />
                     {formData.mainImage ? (
-                      <img
-                        src={formData.mainImage}
-                        className="w-full h-full object-cover"
-                      />
+                      <img src={formData.mainImage} className="w-full h-full object-cover" alt="Cover" />
                     ) : (
                       <>
                         <HiOutlinePhoto className="h-10 w-10 text-slate-200 group-hover:text-primary transition-colors" />
@@ -803,56 +827,69 @@ const AddProduct = () => {
                     )}
                   </div>
                   <div className="flex-1 space-y-2 pt-2">
-                    <p className="text-xs font-bold text-slate-900">
-                      Choose a primary image
-                    </p>
+                    <p className="text-xs font-bold text-slate-900">Choose a primary image</p>
                     <p className="text-xs text-slate-600 font-medium leading-relaxed">
-                      We show this image on the search page and the main
-                      store listing. Make sure it is clear and bright.
+                      This image appears on search results and your main store listing. Make it clear and bright.
                     </p>
-                    <button className="text-[10px] font-black text-primary uppercase tracking-wider hover:underline">
-                      Pick from Library
-                    </button>
                   </div>
                 </div>
               </div>
 
               {/* Gallery Section */}
-              <div className="space-y-3">
-                <label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">
-                  Gallery Photos (Max 5)
-                </label>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <div
-                      key={i}
-                      className="aspect-square rounded-md border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center group hover:border-primary hover:bg-primary/5 transition-all cursor-pointer relative overflow-hidden">
-                      {formData.galleryImages[i - 1] ? (
-                        <img
-                          src={formData.galleryImages[i - 1]}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <>
-                          <input
-                            type="file"
-                            className="absolute inset-0 opacity-0 cursor-pointer z-10"
-                            onChange={(e) => handleImageUpload(e, "gallery")}
-                          />
-                          <HiOutlinePlus className="h-5 w-5 text-slate-200 group-hover:text-primary transition-colors" />
-                          <p className="text-[8px] font-bold text-slate-600 mt-1 uppercase tracking-widest group-hover:text-primary">
-                            Add
-                          </p>
-                        </>
-                      )}
-                    </div>
-                  ))}
+              <div className="space-y-3 pt-6 border-t border-slate-100">
+                <div className="flex items-end justify-between gap-3">
+                  <label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">
+                    Gallery Images{" "}
+                    <span className="text-slate-400 normal-case tracking-normal font-semibold">({(formData.galleryItems || []).length}/5)</span>
+                  </label>
+                  <div className="text-[9px] font-bold text-slate-300 uppercase tracking-widest">Select multiple</div>
                 </div>
+
+                {/* Drop zone */}
+                <div className={cn(
+                  "rounded-2xl border-2 border-dashed bg-slate-50 p-5 transition-colors relative",
+                  (formData.galleryItems || []).length >= 5
+                    ? "border-slate-200 opacity-60 cursor-not-allowed"
+                    : "border-slate-200 hover:border-primary cursor-pointer"
+                )}>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    disabled={(formData.galleryItems || []).length >= 5}
+                    className="absolute inset-0 opacity-0 cursor-pointer z-10 disabled:cursor-not-allowed"
+                    onChange={(e) => handleImageUpload(e, "gallery")}
+                  />
+                  <div className="flex items-center gap-3 text-slate-500">
+                    <div className="h-10 w-10 rounded-xl bg-white ring-1 ring-slate-100 flex items-center justify-center">
+                      <HiOutlineSquaresPlus className="h-5 w-5" />
+                    </div>
+                    <div className="text-xs font-semibold">Click to add gallery images (max 5)</div>
+                  </div>
+                </div>
+
+                {/* Preview grid */}
+                {(formData.galleryItems || []).length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {(formData.galleryItems || []).map((it) => (
+                      <div key={it.id} className="relative rounded-2xl overflow-hidden ring-1 ring-slate-100 bg-white aspect-square">
+                        <img src={it.preview} alt="" className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removeGalleryItem(it.id)}
+                          className="absolute top-2 right-2 h-7 w-7 rounded-full bg-white/90 hover:bg-white shadow flex items-center justify-center transition-all"
+                          title="Remove"
+                        >
+                          <HiOutlinePlus className="h-4 w-4 text-slate-700 rotate-45" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <p className="text-xs text-slate-600 font-medium italic text-center pt-4 border-t border-slate-50">
-                Quick Tip: Using WebP format at 800x800px makes your store load
-                3x faster.
+                Quick Tip: Using WebP format at 800x800px makes your store load 3x faster.
               </p>
             </div>
           )}

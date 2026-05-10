@@ -55,6 +55,7 @@ const ProductDetailPage = () => {
     const { showToast } = useToast();
 
     const [product, setProduct] = useState(null);
+    const [activeImage, setActiveImage] = useState(null);
     const [loading, setLoading] = useState(true);
     const [reviews, setReviews] = useState([]);
     const [reviewLoading, setReviewLoading] = useState(false);
@@ -73,9 +74,11 @@ const ProductDetailPage = () => {
             setLoading(true);
             const res = await customerApi.getProductById(id);
             if (res.data.success) {
-                setProduct(res.data.result);
-                if (res.data.result.images?.length > 0) setActiveImage(res.data.result.images[0]);
-                else if (res.data.result.mainImage) setActiveImage(res.data.result.mainImage);
+                const p = res.data.result;
+                setProduct(p);
+                // Set initial active image: prefer first gallery image, fall back to mainImage
+                if (p.galleryImages?.length > 0) setActiveImage(p.galleryImages[0]);
+                else if (p.mainImage) setActiveImage(p.mainImage);
             }
         } catch (error) {
             console.error("Fetch product error:", error);
@@ -193,7 +196,8 @@ const ProductDetailPage = () => {
                     </div>
 
                     <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                        {(product.images || product.galleryImages || []).map((img, idx) => (
+                        {/* Build thumbnail strip: mainImage first, then gallery images */}
+                        {[product.mainImage, ...(product.galleryImages || [])].filter(Boolean).map((img, idx) => (
                             <button
                                 key={idx}
                                 onClick={() => setActiveImage(img)}
@@ -202,7 +206,7 @@ const ProductDetailPage = () => {
                                     activeImage === img ? "border-[#0c831f] shadow-lg scale-95" : "border-transparent opacity-70 hover:opacity-100"
                                 )}
                             >
-                                <img src={img} alt={`Angle ${idx}`} className="w-full h-full object-cover" />
+                                <img src={img} alt={`View ${idx + 1}`} className="w-full h-full object-cover" />
                             </button>
                         ))}
                     </div>

@@ -207,7 +207,7 @@ export const getProducts = async (req, res) => {
 
     const products = await Product.find(query)
       .select(
-        "name slug description price salePrice purchasePrice stock brand weight unit mainImage headerId categoryId subcategoryId sellerId ownerType status isFeatured variants gstRate createdAt",
+        "name slug description price salePrice purchasePrice stock brand weight unit mainImage galleryImages headerId categoryId subcategoryId sellerId ownerType status isFeatured variants gstRate createdAt",
       )
       .populate("headerId", "name")
       .populate("categoryId", "name")
@@ -607,6 +607,22 @@ export const updateProduct = async (req, res) => {
       return handleResponse(res, 404, "Product not found or unauthorized");
     }
 
+    // Optional: allow seller to keep/remove existing gallery images during update
+    let keepGalleryImages;
+    if (productData.keepGalleryImages !== undefined) {
+      try {
+        const parsed = typeof productData.keepGalleryImages === "string"
+          ? JSON.parse(productData.keepGalleryImages)
+          : productData.keepGalleryImages;
+        if (Array.isArray(parsed)) {
+          keepGalleryImages = parsed.filter((u) => typeof u === "string" && u.trim()).map((u) => u.trim());
+        }
+      } catch (e) {
+        // ignore parse error
+      }
+      delete productData.keepGalleryImages;
+    }
+
     if (role === "admin" && product.ownerType === "seller") {
       let parsedVars = [];
       if (typeof productData.variants === "string") {
@@ -834,7 +850,12 @@ export const updateProduct = async (req, res) => {
         const uploadPromises = req.files.galleryImages.map((file) =>
           uploadToCloudinary(file.buffer, "products"),
         );
-        productData.galleryImages = await Promise.all(uploadPromises);
+        const uploaded = await Promise.all(uploadPromises);
+        if (Array.isArray(keepGalleryImages)) {
+          productData.galleryImages = [...keepGalleryImages, ...uploaded].slice(0, 5);
+        } else {
+          productData.galleryImages = uploaded.slice(0, 5);
+        }
       }
 
       // Admin-style images (array of 'images')
@@ -852,6 +873,11 @@ export const updateProduct = async (req, res) => {
           productData.images = uploadedImages;
         }
       }
+    }
+
+    // If no new uploads but keepGalleryImages was provided, apply it (supports removal)
+    if (productData.galleryImages === undefined && Array.isArray(keepGalleryImages)) {
+      productData.galleryImages = keepGalleryImages.slice(0, 5);
     }
 
     if (typeof productData.tags === "string") {
@@ -1159,7 +1185,7 @@ export const getProductById = async (req, res) => {
       .populate("categoryId", "name")
       .populate("subcategoryId", "name")
       .populate("sellerId", "shopName")
-      .populate("masterProductId", "description brand weight unit variants images mainImage");
+      .populate("masterProductId", "description brand weight unit variants galleryImages mainImage");
 
     if (!product) {
       return handleResponse(res, 404, "Product not found");

@@ -349,7 +349,7 @@ export const getMyPickupAssignments = async (req, res) => {
 
     const rows = await PurchaseRequest.find(query)
       .populate("vendorId", "shopName name phone location")
-      .populate("items.productId", "name")
+      .populate("items.productId", "name sku weight unit")
       .sort({ createdAt: -1 })
       .lean();
 
@@ -367,6 +367,9 @@ export const getMyPickupAssignments = async (req, res) => {
       products: (row.items || []).map((i) => ({
         productId: i.productId?._id || i.productId,
         name: i.productId?.name || "Product",
+        sku: i.productId?.sku || "",
+        weight: i.productId?.weight || "",
+        unit: i.productId?.unit || "",
         qty: Number(i.shortageQty || i.requiredQty || 0),
       })),
       pickupOtpRequired: row.status === "pickup_assigned",

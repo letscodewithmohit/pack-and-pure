@@ -21,6 +21,7 @@ import hubInventoryRoute from "./hubInventoryRoutes.js";
 import purchaseRequestRoute from "./purchaseRequestRoutes.js";
 import pickupPartnerRoute from "./pickupPartnerRoutes.js";
 import pickupRoute from "./pickupRoutes.js";
+import reportRoute from "./reportRoutes.js";
 
 import express from "express";
 
@@ -39,6 +40,7 @@ const setupRoutes = (app) => {
     router.use("/admin/purchase-requests", purchaseRequestRoute);
     router.use("/admin/pickup-partners", pickupPartnerRoute);
     router.use("/pickup-partner", pickupPartnerRoute);
+    router.use("/admin/reports", reportRoute);
     router.use("/pickup", pickupRoute);
     router.use("/categories", categoryRoute);
     router.use("/products", productRoute);

@@ -1,4 +1,3 @@
-// Restart triggered at 2026-03-02T15:56
 import express from "express"
 import dotenv from "dotenv"
 import http from "http"
@@ -99,12 +98,6 @@ app.get('/', (req, res) => {
   });
 });
 
-// Connect to Database, then start seller-timeout fallback (interval) for v2 + legacy
-connectDB().then(() => {
-  startOrderAutoCancelJob();
-  startSlaMonitorJob();
-});
-
 // Setup Routes
 setupRoutes(app);
 
@@ -129,9 +122,18 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start Server
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`
+// Connect to Database and Start Server
+const startServer = async () => {
+  try {
+    await connectDB();
+    
+    // Start background jobs after DB is connected
+    startOrderAutoCancelJob();
+    startSlaMonitorJob();
+
+    // Start Server
+    server.listen(PORT, "0.0.0.0", () => {
+      console.log(`
 ╔════════════════════════════════════════╗
 ║   Quick Commerce API Server Started    ║
 ╠════════════════════════════════════════╣
@@ -140,7 +142,12 @@ server.listen(PORT, "0.0.0.0", () => {
 ║ CORS Origin: ${FRONTEND_URL.substring(0, 25).padEnd(28)} ║
 ║ Socket.IO: Enabled                     ║
 ╚════════════════════════════════════════╝
-  `);
-});
+      `);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
 
-
+startServer();

@@ -121,16 +121,25 @@ const assignPickupToRequest = async (doc, partner) => {
   // Notify pickup partner about new assignment
   try {
     const { createNotification } = await import("../services/notificationService.js");
+    
+    // Construct a more descriptive message
+    const firstItem = doc.items?.[0];
+    const productName = firstItem?.productId?.name || "Products";
+    const qty = firstItem?.shortageQty || firstItem?.requiredQty || 0;
+    const moreCount = (doc.items?.length || 0) - 1;
+    const itemSummary = `${productName} x ${qty}${moreCount > 0 ? ` (+${moreCount} more)` : ""}`;
+    
     await createNotification({
       recipient: partner._id,
       recipientModel: "PickupPartner",
       title: "New Pickup Task",
-      message: `You have been assigned a new pickup task from ${doc.vendorName || "a vendor"}.`,
+      message: `Pickup ${itemSummary} from ${doc.vendorName || "a vendor"}. Request ID: ${doc.requestId}`,
       type: "order",
       data: { 
         requestId: doc.requestId, 
         purchaseRequestId: doc._id.toString(),
-        orderId: doc.orderId?.toString()
+        orderId: doc.orderId?.toString(),
+        productSummary: itemSummary
       },
     });
   } catch (error) {
@@ -372,7 +381,7 @@ export const assignPickupPartner = async (req, res) => {
     const { id } = req.params;
     const { pickupPartnerId, pickupPartnerName } = req.body || {};
 
-    const doc = await PurchaseRequest.findById(id);
+    const doc = await PurchaseRequest.findById(id).populate("items.productId", "name");
     if (!doc) return handleResponse(res, 404, "Purchase request not found");
 
     if (pickupPartnerId) {
@@ -887,7 +896,7 @@ export const markSellerRequestReady = async (req, res) => {
       );
     }
 
-    const doc = await PurchaseRequest.findById(id);
+    const doc = await PurchaseRequest.findById(id).populate("items.productId", "name");
     if (!doc) return handleResponse(res, 404, "Purchase request not found");
 
     doc.vendorReadyAt = new Date();

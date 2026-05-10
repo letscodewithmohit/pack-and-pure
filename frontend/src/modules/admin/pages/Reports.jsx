@@ -43,12 +43,40 @@ const Reports = () => {
     return Object.entries(counts).map(([k, v]) => ({ key: k, count: Number(v || 0) }));
   }, [data]);
 
+  const handleDownload = async (type) => {
+    try {
+      let res;
+      let filename = `${type}_report_${new Date().toISOString().split('T')[0]}.csv`;
+      
+      if (type === 'gst') {
+        res = await adminApi.exportGstReport({ from, to });
+      } else if (type === 'payouts') {
+        res = await adminApi.exportVendorPayouts();
+      } else if (type === 'inventory') {
+        res = await adminApi.exportInventory();
+      }
+
+      if (res && res.data) {
+        const url = window.URL.createObjectURL(new Blob([res.data]));
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        showToast(`Downloaded ${type.toUpperCase()} report`, "success");
+      }
+    } catch (e) {
+      showToast("Download failed", "error");
+    }
+  };
+
   return (
     <div className="ds-section-spacing animate-in fade-in slide-in-from-bottom-4 duration-700 pb-12">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 px-1">
         <div>
-          <h1 className="ds-h1">Reports</h1>
-          <p className="ds-description mt-1">Order and payment summaries.</p>
+          <h1 className="ds-h1">Reports & Exports</h1>
+          <p className="ds-description mt-1">Download business data and view summaries.</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
           <div>
@@ -82,22 +110,53 @@ const Reports = () => {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+        <Card className="hover:scale-[1.02] transition-transform cursor-pointer ring-1 ring-slate-100" onClick={() => handleDownload('gst')}>
+          <div className="flex flex-col items-center text-center p-4">
+            <div className="h-12 w-12 rounded-2xl bg-indigo-50 flex items-center justify-center mb-4">
+              <span className="text-2xl">📊</span>
+            </div>
+            <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest">GST Report</h4>
+            <p className="text-[10px] text-slate-400 font-bold mt-2">Download item-wise tax breakdown for the selected range.</p>
+            <button className="mt-4 ds-btn-sm bg-indigo-600 text-white w-full rounded-xl py-2 text-[10px] font-black uppercase">Download CSV</button>
+          </div>
+        </Card>
+
+        <Card className="hover:scale-[1.02] transition-transform cursor-pointer ring-1 ring-slate-100" onClick={() => handleDownload('payouts')}>
+          <div className="flex flex-col items-center text-center p-4">
+            <div className="h-12 w-12 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">
+              <span className="text-2xl">💰</span>
+            </div>
+            <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest">Vendor Payouts</h4>
+            <p className="text-[10px] text-slate-400 font-bold mt-2">Download all vendor earnings, settlements, and pending balances.</p>
+            <button className="mt-4 ds-btn-sm bg-emerald-600 text-white w-full rounded-xl py-2 text-[10px] font-black uppercase">Download CSV</button>
+          </div>
+        </Card>
+
+        <Card className="hover:scale-[1.02] transition-transform cursor-pointer ring-1 ring-slate-100" onClick={() => handleDownload('inventory')}>
+          <div className="flex flex-col items-center text-center p-4">
+            <div className="h-12 w-12 rounded-2xl bg-amber-50 flex items-center justify-center mb-4">
+              <span className="text-2xl">📦</span>
+            </div>
+            <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest">Hub Inventory</h4>
+            <p className="text-[10px] text-slate-400 font-bold mt-2">Download current stock levels, SKUs, and reorder status.</p>
+            <button className="mt-4 ds-btn-sm bg-amber-600 text-white w-full rounded-xl py-2 text-[10px] font-black uppercase">Download CSV</button>
+          </div>
+        </Card>
+      </div>
+
       {loading ? (
-        <Card className="p-8 ring-1 ring-slate-100">
+        <Card className="p-8 mt-8 ring-1 ring-slate-100">
           <p className="text-xs font-black text-slate-400 uppercase tracking-widest">
-            Loading…
+            Loading summaries…
           </p>
         </Card>
-      ) : !data ? (
-        <Card className="p-8 ring-1 ring-slate-100">
-          <p className="text-sm font-bold text-slate-600">No data.</p>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      ) : data && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
           <Card className="ring-1 ring-slate-100">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">
-                Order Status
+                Order Status Summary
               </h3>
               <Badge variant="outline" className="text-[10px] font-black">
                 {statusRows.reduce((s, r) => s + r.count, 0)} total
@@ -123,7 +182,7 @@ const Reports = () => {
           <Card className="ring-1 ring-slate-100">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">
-                Payment Methods
+                Payment Distribution
               </h3>
               <Badge variant="outline" className="text-[10px] font-black">
                 {paymentRows.reduce((s, r) => s + r.count, 0)} total

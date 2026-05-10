@@ -159,7 +159,8 @@ const ProductManagement = () => {
     customerCare: "",
     masterProductId: "",
     mainImage: null,
-    galleryImages: [],
+    mainImageFile: null,
+    galleryItems: [],
     variants: [{ id: Date.now(), name: "Default", price: "", salePrice: "", stock: "", sku: "" }],
   });
 
@@ -288,10 +289,15 @@ const ProductManagement = () => {
         data.append("mainImage", formData.mainImageFile);
       }
       
-      if (formData.galleryFiles && formData.galleryFiles.length > 0) {
-        formData.galleryFiles.forEach((file) => {
-          data.append("galleryImages", file);
-        });
+      const galleryFiles = (formData.galleryItems || []).filter((it) => !!it?.file).map((it) => it.file);
+      galleryFiles.forEach((file) => data.append("galleryImages", file));
+
+      if (editingItem) {
+        // Preserve/remove existing gallery images on update
+        const keepGalleryImages = (formData.galleryItems || [])
+          .filter((it) => !it?.file && typeof it?.preview === "string" && it.preview)
+          .map((it) => it.preview);
+        data.append("keepGalleryImages", JSON.stringify(keepGalleryImages));
       }
 
       if (editingItem) {
@@ -312,22 +318,47 @@ const ProductManagement = () => {
   };
 
   const handleImageUpload = (e, type) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
+    const selected = Array.from(e?.target?.files || []);
+    if (selected.length === 0) return;
+
+    if (type === "main") {
+      const file = selected[0];
       const reader = new FileReader();
       reader.onloadend = () => {
-        if (type === "main") {
-          setFormData({ ...formData, mainImage: reader.result, mainImageFile: file });
-        } else {
-          setFormData({
-            ...formData,
-            galleryImages: [...formData.galleryImages, reader.result],
-            galleryFiles: [...(formData.galleryFiles || []), file]
-          });
-        }
+        setFormData((prev) => ({ ...prev, mainImage: reader.result, mainImageFile: file }));
       };
       reader.readAsDataURL(file);
+      return;
     }
+
+    // Gallery: allow multiple (max 5 total)
+    const remainingSlots = Math.max(0, 5 - (formData.galleryItems?.length || 0));
+    const filesToAdd = selected.slice(0, remainingSlots);
+    if (filesToAdd.length < selected.length) toast.message("Max 5 gallery images allowed");
+
+    filesToAdd.forEach((file) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData((prev) => ({
+          ...prev,
+          galleryItems: [
+            ...(prev.galleryItems || []),
+            { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, preview: reader.result, file },
+          ],
+        }));
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // allow selecting the same file again later
+    e.target.value = "";
+  };
+
+  const removeGalleryItem = (id) => {
+    setFormData((prev) => ({
+      ...prev,
+      galleryItems: (prev.galleryItems || []).filter((it) => it.id !== id),
+    }));
   };
 
   const openEditModal = (item = null) => {
@@ -356,7 +387,12 @@ const ProductManagement = () => {
         customerCare: item.customerCare || "",
         masterProductId: item.masterProductId?._id || item.masterProductId || "",
         mainImage: item.mainImage || null,
-        galleryImages: item.galleryImages || [],
+        mainImageFile: null,
+        galleryItems: (Array.isArray(item.galleryImages) ? item.galleryImages : []).map((url) => ({
+          id: `existing-${url}`,
+          preview: url,
+          file: null,
+        })),
         variants: (item.variants && item.variants.length > 0) ? item.variants.map(v => ({ ...v, id: v._id || Date.now() })) : [
           { id: Date.now(), name: "Default", price: item.price || "", salePrice: item.salePrice || "", stock: item.stock || "", sku: item.sku || "" },
         ],
@@ -382,7 +418,8 @@ const ProductManagement = () => {
         unit: "Pieces",
         brand: "",
         mainImage: null,
-        galleryImages: [],
+        mainImageFile: null,
+        galleryItems: [],
         variants: [{ id: Date.now(), name: "Default", price: "", salePrice: "", stock: "", sku: "" }],
       });
       setEditingItem(null);
@@ -514,7 +551,7 @@ const ProductManagement = () => {
               <div key={p._id || p.id} className="p-4 rounded-2xl border border-slate-100 bg-white shadow-sm flex flex-col gap-3">
                 <div className="flex items-center gap-4">
                   <div className="h-16 w-16 flex-shrink-0 rounded-xl overflow-hidden bg-slate-100 ring-1 ring-slate-200">
-                    <img src={p.mainImage || p.image || "https://images.unsplash.com/photo-1550989460-0adf9ea622e2"} alt={p.name} className="h-full w-full object-cover" />
+                    <img src={p.mainImage || p.galleryImages?.[0] || "https://images.unsplash.com/photo-1550989460-0adf9ea622e2"} alt={p.name} className="h-full w-full object-cover" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h4 className="text-base font-bold text-slate-900 truncate">{p.name}</h4>
@@ -562,7 +599,7 @@ const ProductManagement = () => {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-4">
                         <div className="h-16 w-16 rounded-xl overflow-hidden bg-slate-100 ring-1 ring-slate-200">
-                          <img src={p.mainImage || p.image || "https://images.unsplash.com/photo-1550989460-0adf9ea622e2"} alt={p.name} className="h-full w-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                          <img src={p.mainImage || p.galleryImages?.[0] || "https://images.unsplash.com/photo-1550989460-0adf9ea622e2"} alt={p.name} className="h-full w-full object-cover group-hover:scale-110 transition-transform duration-500" />
                         </div>
                         <p className="text-base font-medium text-slate-900">{p.name}</p>
                       </div>
@@ -741,9 +778,58 @@ const ProductManagement = () => {
                       <div className="space-y-3">
                         <label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">Cover Photo</label>
                         <div className="w-48 aspect-square rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center cursor-pointer overflow-hidden relative group hover:border-primary">
-                          <input type="file" className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={e => handleImageUpload(e, "main")} />
+                          <input type="file" accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer z-10" onChange={e => handleImageUpload(e, "main")} />
                           {formData.mainImage ? <img src={formData.mainImage} className="w-full h-full object-cover" /> : <HiOutlinePhoto className="h-10 w-10 text-slate-200" />}
                         </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="flex items-end justify-between gap-3">
+                          <label className="text-xs font-bold text-slate-600 uppercase tracking-widest ml-1">
+                            Gallery Images <span className="text-slate-400 normal-case tracking-normal font-semibold">({(formData.galleryItems || []).length}/5)</span>
+                          </label>
+                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Select multiple</div>
+                        </div>
+
+                        <div className={cn(
+                          "rounded-2xl border-2 border-dashed bg-slate-50 p-5 transition-colors relative",
+                          (formData.galleryItems || []).length >= 5 ? "border-slate-200 opacity-60 cursor-not-allowed" : "border-slate-200 hover:border-primary"
+                        )}>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            disabled={(formData.galleryItems || []).length >= 5}
+                            className="absolute inset-0 opacity-0 cursor-pointer z-10 disabled:cursor-not-allowed"
+                            onChange={(e) => handleImageUpload(e, "gallery")}
+                          />
+                          <div className="flex items-center gap-3 text-slate-500">
+                            <div className="h-10 w-10 rounded-xl bg-white ring-1 ring-slate-100 flex items-center justify-center">
+                              <HiOutlineSquaresPlus className="h-5 w-5" />
+                            </div>
+                            <div className="text-xs font-semibold">
+                              Click to add gallery images (max 5)
+                            </div>
+                          </div>
+                        </div>
+
+                        {(formData.galleryItems || []).length > 0 && (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                            {(formData.galleryItems || []).map((it) => (
+                              <div key={it.id} className="relative rounded-2xl overflow-hidden ring-1 ring-slate-100 bg-white">
+                                <img src={it.preview} alt="" className="w-full aspect-square object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={() => removeGalleryItem(it.id)}
+                                  className="absolute top-2 right-2 h-8 w-8 rounded-full bg-white/90 hover:bg-white shadow flex items-center justify-center"
+                                  title="Remove"
+                                >
+                                  <HiOutlineXMark className="h-4 w-4 text-slate-700" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

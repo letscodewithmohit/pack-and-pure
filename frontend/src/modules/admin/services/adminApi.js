@@ -10,15 +10,16 @@ export const adminApi = {
     updateUserCodPolicy: (id, data) => axiosInstance.patch(`/admin/users/${id}/cod-policy`, data),
     approveSeller: (id) => axiosInstance.patch(`/admin/sellers/approve/${id}`),
     rejectSeller: (id) => axiosInstance.delete(`/admin/sellers/reject/${id}`),
-
     getAdminWalletData: (params) => axiosInstance.get('/admin/wallet-data', { params }),
-    getReports: () => axiosInstance.get('/admin/reports'),
+    getReports: (params) => axiosInstance.get('/admin/reports', { params }),
+    exportGstReport: (params) => axiosInstance.get('/admin/reports/gst-export', { params, responseType: 'blob' }),
+    exportVendorPayouts: () => axiosInstance.get('/admin/reports/vendor-payouts-export', { responseType: 'blob' }),
+    exportInventory: () => axiosInstance.get('/admin/reports/inventory-export', { responseType: 'blob' }),
     getProfile: () => axiosInstance.get('/admin/profile'),
     updateProfile: (data) => axiosInstance.put('/admin/profile', data),
     updatePassword: (data) => axiosInstance.put('/admin/profile/password', data),
     getPlatformSettings: () => axiosInstance.get('/admin/settings/platform'),
     updatePlatformSettings: (data) => axiosInstance.put('/admin/settings/platform', data),
-    // Centralized settings (public GET, admin PUT)
     getSettings: () => axiosInstance.get('/settings'),
     updateSettings: (data) => axiosInstance.put('/settings', data),
     uploadSettingsImage: (formData, type = 'logo') =>

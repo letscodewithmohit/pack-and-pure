@@ -47,12 +47,14 @@ const canRespond = (row) => {
   const st = normalizeStatus(row?.status);
   const vendorState = normalizeStatus(row?.vendorResponse?.status || "pending");
   if (vendorState !== "pending") return false;
-  return ["created", "vendor_confirmed", "pickup_assigned"].includes(st);
+  return ["created", "pickup_assigned"].includes(st);
 };
 
 const canCommitQuantities = (row) => {
   const st = normalizeStatus(row?.status);
-  return ["created", "vendor_confirmed", "pickup_assigned"].includes(st);
+  const vendorState = normalizeStatus(row?.vendorResponse?.status || "pending");
+  if (vendorState !== "pending") return false;
+  return ["created", "pickup_assigned"].includes(st);
 };
 
 const canMarkReady = (row) => {
